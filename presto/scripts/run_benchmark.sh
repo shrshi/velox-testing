@@ -62,6 +62,9 @@ OPTIONS:
     PRESTO_CTAS_SCRATCH_DIR
                             Writable host scratch directory used for temporary distributed CTAS results. This must be set
                             before both cluster startup and this script when --run-as-ctas-queries is enabled.
+    --metadata-path         Path to metadata.json. When the metadata file cannot be
+                            auto-detected from the table's data directory (e.g. read-only
+                            data dir), use this to point to an alternative location.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -215,6 +218,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --metadata-path)
+        if [[ -n $2 ]]; then
+          METADATA_PATH=$2
+          shift 2
+        else
+          echo "Error: --metadata-path requires a value"
+          exit 1
+        fi
+        ;;
       -v|--verbose)
         export PRESTO_BENCHMARK_DEBUG=1
         shift
@@ -320,6 +332,10 @@ fi
 
 if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
   PYTEST_ARGS+=("--skip-drop-cache")
+fi
+
+if [[ -n ${METADATA_PATH} ]]; then
+  PYTEST_ARGS+=("--metadata-path ${METADATA_PATH}")
 fi
 
 if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then

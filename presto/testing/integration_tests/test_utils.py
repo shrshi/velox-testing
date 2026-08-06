@@ -14,7 +14,7 @@ from common.testing.integration_tests.test_utils import (
 )
 
 
-def execute_query_and_compare_results(request_config, presto_cursor, queries, query_id):
+def execute_query_and_compare_results(request_config, presto_cursor, queries, query_id, duckdb_query=None):
     query = queries[query_id]
 
     explain = request_config.getoption("--explain")
@@ -35,5 +35,12 @@ def execute_query_and_compare_results(request_config, presto_cursor, queries, qu
         return
 
     base_execute_query_and_compare_results(
-        request_config, queries, query_id, "presto", presto_rows, presto_columns, presto_column_types
+        request_config,
+        queries,
+        query_id,
+        "presto",
+        presto_rows,
+        presto_columns,
+        presto_column_types,
+        duckdb_query,
     )

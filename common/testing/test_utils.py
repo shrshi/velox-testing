@@ -14,6 +14,18 @@ def get_queries(benchmark_type, queries_file=None):
         return json.load(file)
 
 
+def get_duckdb_queries(benchmark_type, queries_file=None):
+    queries = get_queries(benchmark_type, queries_file)
+    if queries_file:
+        return queries
+
+    overrides_path = get_abs_file_path(__file__, f"./queries/{benchmark_type}/duckdb_overrides.json")
+    if os.path.exists(overrides_path):
+        with open(overrides_path, "r") as file:
+            queries.update(json.load(file))
+    return queries
+
+
 def get_scale_factor_from_file(file):
     with open(get_abs_file_path(__file__, file), "r") as file:
         metadata = json.load(file)

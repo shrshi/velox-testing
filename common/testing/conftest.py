@@ -33,10 +33,18 @@ def _parse_selected_query_ids(selected_query_ids, num_queries):
     query_ids = []
     if selected_query_ids and selected_query_ids.strip():
         for id_str in selected_query_ids.split(","):
-            id_int = int(id_str)
-            if id_int < 1 or id_int > num_queries:
-                raise ValueError(f"Invalid Query ID: {id_str}. Query ID must be between 1 and {num_queries}.")
-            query_ids.append(id_int)
+            id_str = id_str.strip()
+            if "-" in id_str:
+                start, end = id_str.split("-", 1)
+                start, end = int(start), int(end)
+                if start < 1 or end > num_queries or start > end:
+                    raise ValueError(f"Invalid range: {id_str}. Must be between 1 and {num_queries}.")
+                query_ids.extend(range(start, end + 1))
+            else:
+                id_int = int(id_str)
+                if id_int < 1 or id_int > num_queries:
+                    raise ValueError(f"Invalid Query ID: {id_str}. Query ID must be between 1 and {num_queries}.")
+                query_ids.append(id_int)
     return query_ids
 
 

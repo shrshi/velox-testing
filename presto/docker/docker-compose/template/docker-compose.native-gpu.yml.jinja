@@ -86,6 +86,7 @@ services:
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: {{ gpu_id }}
+      CUDA_LAUNCH_BLOCKING: ${CUDA_LAUNCH_BLOCKING:-0}
     volumes:
       - ../../config/generated/gpu/etc_common:/opt/presto-server/etc
       - ../../config/generated/gpu/etc_worker_{{ gpu_id }}/node.properties:/opt/presto-server/etc/node.properties
@@ -114,6 +115,7 @@ services:
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
       CUDA_VISIBLE_DEVICES: "{% for id in workers %}{{ id }}{% if not loop.last %},{% endif %}{% endfor %}"
+      CUDA_LAUNCH_BLOCKING: ${CUDA_LAUNCH_BLOCKING:-0}
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
@@ -129,6 +131,7 @@ services:
       UCX_TCP_KEEPINTVL: 1ms
       UCX_KEEPALIVE_INTERVAL: 1ms
       KVIKIO_NTHREADS: {{ kvikio_threads }}
+      CUDA_LAUNCH_BLOCKING: ${CUDA_LAUNCH_BLOCKING:-0}
       CUDA_VISIBLE_DEVICES: 0
 {%- endif %}
     volumes:

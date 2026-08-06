@@ -40,16 +40,34 @@ def _get_node_count(hostname: str, port: int) -> int | None:
 _SAFE_IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
-def _get_schema_info(hostname: str, port: int, user: str, schema_name: str) -> dict:
+def _get_schema_info(
+    hostname: str, port: int, user: str, schema_name: str, metadata_path: str | None = None
+) -> dict:
     """
     Resolve schema metadata from the schema's data source (metadata.json next to table data).
     Uses same logic as test_utils.get_scale_factor but without pytest request.
+
+    If metadata_path is provided, it is used directly instead of auto-detecting
+    from the table's external location.
 
     Returns a dict with:
         scale_factor: int | float | None
         data_dir: str | None  — parent directory of the table data (e.g. /data/sf100)
     """
     result: dict = {"scale_factor": None, "data_dir": None}
+
+    if metadata_path is not None:
+        meta_path = Path(metadata_path).resolve()
+        if meta_path.is_file():
+            with open(meta_path) as f:
+                data = json.load(f)
+            sf = data.get("scale_factor") or data.get("options", {}).get("scale_factor")
+            if sf is not None:
+                result["scale_factor"] = sf
+            result["data_dir"] = str(meta_path.parent)
+            return result
+        _debug(f"metadata_path {metadata_path!r} does not exist, falling back to auto-detection")
+
     if not _SAFE_IDENTIFIER_RE.match(schema_name):
         _debug(f"schema_name {schema_name!r} contains unsafe characters, skipping schema info lookup")
         return result
@@ -223,14 +241,16 @@ def gather_run_context(
     port: int,
     user: str,
     schema_name: str,
+    metadata_path: str | None = None,
 ) -> dict:
     """
     Build run-config dict from context. Engine is determined from the
     coordinator's cluster-tag (via /v1/cluster). Scale factor is read
-    from the metadata file next to the schema's table data.
+    from the metadata file next to the schema's table data, or from
+    metadata_path if provided.
     """
     ctx = {}
-    schema_info = _get_schema_info(hostname, port, user, schema_name)
+    schema_info = _get_schema_info(hostname, port, user, schema_name, metadata_path)
     sf = schema_info["scale_factor"]
     if sf is not None:
         ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf

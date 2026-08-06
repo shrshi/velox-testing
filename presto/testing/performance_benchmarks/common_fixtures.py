@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import os
 import shutil
 from contextlib import suppress
@@ -14,6 +15,7 @@ import pytest
 from common.testing.performance_benchmarks.benchmark_keys import BenchmarkKeys
 from common.testing.performance_benchmarks.conftest import get_output_dir
 from common.testing.performance_benchmarks.profiler_utils import start_profiler, stop_profiler
+from common.testing.result_comparison import normalize_decimal_columns
 
 from ..integration_tests.analyze_tables import check_tables_analyzed
 from .ctas import (
@@ -32,11 +34,14 @@ from .run_context import gather_run_context
 def write_query_result(cursor, output_dir, query_id):
     rows = cursor.fetchall()
     columns = [description[0] for description in cursor.description]
+    column_types = [description[1] for description in cursor.description]
     frame = pd.DataFrame(rows, columns=columns)
+    frame = normalize_decimal_columns(frame, column_types)
 
     results_dir = Path(output_dir) / "query_results"
     results_dir.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(results_dir / f"{query_id.lower()}.parquet", index=False)
+    (results_dir / f"{query_id.lower()}.types.json").write_text(json.dumps(column_types))
 
 
 @pytest.fixture(scope="module")
@@ -95,12 +100,14 @@ def run_context_collector(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema_name = request.config.getoption("--schema-name")
+    metadata_path = request.config.getoption("--metadata-path", default=None)
 
     ctx = gather_run_context(
         hostname=hostname,
         port=port,
         user=user,
         schema_name=schema_name,
+        metadata_path=metadata_path,
     )
     ctx["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     yield ctx

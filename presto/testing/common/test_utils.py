@@ -8,6 +8,7 @@ import pytest
 
 from common.testing.test_utils import (
     get_abs_file_path,
+    get_duckdb_queries,  # noqa: F401
     get_queries,  # noqa: F401
     get_scale_factor_from_file,
 )
@@ -41,6 +42,9 @@ def get_scale_factor(request, presto_cursor):
     scale_factor = request.config.getoption("--scale-factor")
     if scale_factor is not None:
         return float(scale_factor)
+    metadata_path = request.config.getoption("--metadata-path", default=None)
+    if metadata_path is not None:
+        return get_scale_factor_from_file(metadata_path)
     benchmark_type = request.node.obj.BENCHMARK_TYPE
     repository_path = ""
     if bool(schema_name):

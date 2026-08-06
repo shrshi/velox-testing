@@ -31,3 +31,9 @@ def tpch_queries(request, presto_cursor):
 def tpcds_queries(request):
     queries_file = request.config.getoption("--queries-file")
     return test_utils.get_queries(request.node.obj.BENCHMARK_TYPE, queries_file)
+
+
+@pytest.fixture(scope="module")
+def tpcds_duckdb_queries(request):
+    queries_file = request.config.getoption("--queries-file")
+    return test_utils.get_duckdb_queries(request.node.obj.BENCHMARK_TYPE, queries_file)

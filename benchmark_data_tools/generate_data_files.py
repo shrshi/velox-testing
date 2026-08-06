@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -201,16 +202,16 @@ def generate_data_files_with_duckdb(args):
         table_data_dir = f"{args.data_dir_path}/{table_name}"
         Path(table_data_dir).mkdir(exist_ok=False)
         duckdb.sql(
-            f"COPY ({get_select_query(table_name, args.convert_decimals_to_floats)}) "
+            f"COPY ({get_select_query(table_name, args.convert_decimals_to_floats, args.widen_decimals)}) "
             f"TO '{table_data_dir}/{table_name}.parquet' (FORMAT parquet)"
         )
 
 
-def get_select_query(table_name, convert_decimals_to_floats):
-    if convert_decimals_to_floats:
+def get_select_query(table_name, convert_decimals_to_floats, widen_decimals):
+    if convert_decimals_to_floats or widen_decimals:
         column_metadata_rows = duckdb.query(f"DESCRIBE {table_name}").fetchall()
         column_projections = [
-            get_column_projection(column_metadata, convert_decimals_to_floats)
+            get_column_projection(column_metadata, convert_decimals_to_floats, widen_decimals)
             for column_metadata in column_metadata_rows
         ]
         query = f"SELECT {','.join(column_projections)} FROM {table_name}"
@@ -219,13 +220,18 @@ def get_select_query(table_name, convert_decimals_to_floats):
     return query
 
 
-def get_column_projection(column_metadata, convert_decimals_to_floats):
+def get_column_projection(column_metadata, convert_decimals_to_floats, widen_decimals):
     col_name, col_type, *_ = column_metadata
-    if convert_decimals_to_floats and is_decimal_column(col_type):
-        projection = f"CAST({col_name} AS DOUBLE) AS {col_name}"
-    else:
-        projection = col_name
-    return projection
+    if is_decimal_column(col_type):
+        if convert_decimals_to_floats:
+            return f"CAST({col_name} AS DOUBLE) AS {col_name}"
+        if widen_decimals:
+            match = re.match(r"^DECIMAL\((\d+),(\d+)\)$", col_type)
+            precision, scale = int(match.group(1)), int(match.group(2))
+            if precision <= 9:
+                new_precision = max(10, precision)
+                return f"CAST({col_name} AS DECIMAL({new_precision},{scale})) AS {col_name}"
+    return col_name
 
 
 def get_tpchgen_codec_args(codec_defs, table_name):
@@ -381,6 +387,14 @@ if __name__ == "__main__":
         required=False,
         default=False,
         help="Convert all decimal columns to float column type.",
+    )
+    parser.add_argument(
+        "--widen-decimals",
+        action="store_true",
+        required=False,
+        default=False,
+        help="Widen DECIMAL columns with precision <= 9 (INT32-backed) to precision 10+ (INT64-backed) "
+        "for compatibility with cuDF, which does not support DECIMAL32 aggregations.",
     )
     parser.add_argument(
         "--use-duckdb", action="store_true", required=False, default=False, help="Use duckdb instead of tpchgen"

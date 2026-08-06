@@ -2,11 +2,15 @@
 ARG BASE_IMAGE=presto/prestissimo-dependency:centos9
 FROM ${BASE_IMAGE}
 
+ARG GPU=ON
+
 RUN rpm --import https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub && \
     dnf config-manager --add-repo "https://developer.download.nvidia.com/devtools/repos/rhel$(source /etc/os-release; echo ${VERSION_ID%%.*})/$(rpm --eval '%{_arch}' | sed s/aarch/arm/)/" && \
-    dnf install -y nsight-systems-cli-2026.3.1 numactl
+    dnf install -y nsight-systems-cli-2026.3.1 numactl && \
+    if [ "${GPU}" = "ON" ]; then \
+      dnf install -y "cuda-sanitizer-$(echo "${CUDA_VERSION}" | tr . -)"; \
+    fi
 
-ARG GPU=ON
 ARG BUILD_TYPE=release
 ARG BUILD_BASE_DIR=/presto_native_${BUILD_TYPE}_gpu_${GPU}_build
 ARG NUM_THREADS=12

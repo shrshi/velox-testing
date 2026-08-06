@@ -49,6 +49,7 @@ def pytest_addoption(parser):
     parser.addoption("--skip-drop-cache", action="store_true", default=False)
     parser.addoption("--skip-analyze-check", action="store_true", default=False)
     parser.addoption("--run-as-ctas-queries", action="store_true", default=False)
+    parser.addoption("--metadata-path", help="Path to metadata.json (default: auto-detected from table data)")
 
 
 def pytest_configure(config):

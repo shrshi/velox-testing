@@ -35,6 +35,7 @@ OPTIONS:
     -r, --reference-results-dir      If specified, use the results in the specified directory for comparison. The results are
                                      expected to be in the form of Parquet files with names matching the relevant query number.
                                      For example, "{reference-results-dir}/q1.parquet", "{reference-results-dir}/q1.parquet", etc.
+    --metadata-path                  Path to metadata.json when it cannot be detected from the benchmark data directory.
     --store-presto-results           If this argument is specified, store Presto query execution results. Results will be stored
                                      in Parquet files in a "presto_results" directory under the --output-dir path.
     --store-reference-results        If this argument is specified, store the reference results (from DuckDB). Results will
@@ -164,6 +165,15 @@ parse_args() {
           exit 1
         fi
         ;;
+      --metadata-path)
+        if [[ -n $2 ]]; then
+          METADATA_PATH=$2
+          shift 2
+        else
+          echo "Error: --metadata-path requires a value"
+          exit 1
+        fi
+        ;;
       --store-presto-results)
         STORE_PRESTO_RESULTS=true
         shift
@@ -266,6 +276,10 @@ fi
 
 if [[ -n ${REFERENCE_RESULTS_DIR} ]]; then
   PYTEST_ARGS+=("--reference-results-dir ${REFERENCE_RESULTS_DIR}")
+fi
+
+if [[ -n ${METADATA_PATH} ]]; then
+  PYTEST_ARGS+=("--metadata-path ${METADATA_PATH}")
 fi
 
 if [[ -n ${STORE_PRESTO_RESULTS} ]]; then

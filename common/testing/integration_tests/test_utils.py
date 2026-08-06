@@ -24,6 +24,7 @@ def execute_query_and_compare_results(
     query_engine_rows,
     query_engine_columns,
     query_engine_column_types=None,
+    reference_query=None,
 ):
     query = queries[query_id]
 
@@ -40,7 +41,7 @@ def execute_query_and_compare_results(
     if reference_results_dir:
         duckdb_relation = duckdb.from_parquet(f"{reference_results_dir}/{result_file_name}")
     else:
-        duckdb_relation = duckdb.sql(query)
+        duckdb_relation = duckdb.sql(reference_query or query)
 
     if request_config.getoption("--store-reference-results"):
         duckdb_relation.write_parquet(f"{output_dir}/reference_results/{result_file_name}")

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ..common.conftest import pytest_generate_tests  # noqa: F401
-from ..common.fixtures import tpcds_queries, tpch_queries  # noqa: F401
+from ..common.fixtures import tpcds_duckdb_queries, tpcds_queries, tpch_queries  # noqa: F401
 from .common_fixtures import presto_cursor, setup_and_teardown  # noqa: F401
 
 
@@ -25,3 +25,4 @@ def pytest_addoption(parser):
     parser.addoption("--skip-reference-comparison", action="store_true", default=False)
     parser.addoption("--explain", action="store_true", default=False)
     parser.addoption("--explain-analyze", action="store_true", default=False)
+    parser.addoption("--metadata-path", help="Path to metadata.json (default: auto-detected from table data)")

@@ -119,5 +119,11 @@ RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \
 # the devcontainer feature remaps the coder uid to match the host user.
 RUN mkdir -m 0777 -p /opt/velox-build /opt/presto-build /opt/fb-deps
 
+# GPG needs a user-owned home directory with restrictive permissions before
+# the host gpg-agent socket is mounted by the devcontainer configuration.
+RUN mkdir -p /home/coder/.gnupg && \
+    chown coder:coder /home/coder/.gnupg && \
+    chmod 700 /home/coder/.gnupg
+
 USER coder
 WORKDIR /home/coder

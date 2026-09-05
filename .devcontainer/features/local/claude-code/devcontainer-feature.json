@@ -1,0 +1,8 @@
+{
+  "name": "Install Claude Code",
+  "id": "claude-code",
+  "version": "0.alpha",
+  "description": "A feature to install Claude Code AI assistant",
+  "capAdd": ["SYS_ADMIN"],
+  "securityOpt": ["apparmor=unconfined", "seccomp=unconfined"]
+}

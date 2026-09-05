@@ -13,28 +13,31 @@
   },
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
-    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {}
+    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {},
+    "../features/local/utils": {}
   },
   "overrideFeatureInstallOrder": [
     "ghcr.io/devcontainers/features/sshd",
-    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
+    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils",
+    "../features/local/utils"
   ],
   "initializeCommand": ["/bin/bash", "${localWorkspaceFolder}/scripts/devcontainer/initialize", "${localWorkspaceFolder}/..", "${localEnv:HOME}", "13.3"],
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
   "mounts": [
     "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../kvikio,target=/home/coder/kvikio,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../presto,target=/home/coder/presto,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../rapidsmpf,target=/home/coder/rapidsmpf,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../ucxx,target=/home/coder/ucxx,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/build,target=/opt/velox-build,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.3-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent"
+    "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.3-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent",
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",
+    "source=${localEnv:GPG_AGENT_EXTRA_SOCK},target=/home/coder/.gnupg/S.gpg-agent,type=bind",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/devcontainer/git-signing-public-key.asc,target=/run/host-services/git-signing-public-key.asc,type=bind,readonly",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/dotfiles,target=/home/coder/dotfiles,type=bind",
+    "source=${localWorkspaceFolder}/../coder-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly"
   ],
   "hostRequirements": {
     "gpu": "optional"
@@ -69,6 +72,14 @@
     }
   },
   "containerEnv": {
-    "VELOX_DEPENDENCY_SOURCE": "SYSTEM"
+    "VELOX_DEPENDENCY_SOURCE": "SYSTEM",
+    "SSH_AUTH_SOCK": "/ssh-agent",
+    "OPENCODE_CONFIG_DIR": "/home/coder/.opencode",
+    "OPENCODE_EXPERIMENTAL": "1",
+    "OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT": "0",
+    "OPENCODE_ENABLE_EXA": "1",
+    "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+    "PROMPT_COMMAND": "",
+    "XDG_CONFIG_HOME": "/home/coder/.config"
   }
 }

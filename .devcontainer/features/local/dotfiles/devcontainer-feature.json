@@ -1,0 +1,6 @@
+{
+  "name": "Install dotfiles dependencies",
+  "id": "dotfiles",
+  "version": "0.alpha",
+  "description": "A feature to install dependencies for dotfiles"
+}

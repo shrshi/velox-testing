@@ -2,6 +2,8 @@
 
 A GPU-ready development environment for building [Velox](https://github.com/facebookincubator/velox) with cuDF acceleration and [Presto Native Execution](https://github.com/prestodb/presto/tree/master/presto-native-execution). Based on the RAPIDS devcontainer image with scripts for building cuDF, RMM, UCXX, and KvikIO from source.
 
+> **Mounted-repository subset:** the CUDA devcontainer configurations intentionally mount only the sibling `cudf`, `rmm`, and `velox` repositories. `kvikio`, `presto`, `rapidsmpf`, and `ucxx` are not mounted; add those mounts back only when using workflows that require them.
+
 ## Quick Start
 
 Builds use the distributed build cluster via `sccache-dist`; use `-j0`.

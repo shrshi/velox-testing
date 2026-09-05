@@ -97,8 +97,8 @@ ENV AWS_ROLE_ARN="arn:aws:iam::279114543810:role/nv-gha-token-sccache-devs" \
 ###
 # Enable sccache-dist by default
 ENV DEVCONTAINER_UTILS_ENABLE_SCCACHE_DIST=1
-# Compile locally if max retries exceeded
-ENV SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=true
+# Fail the build if distributed compilation is unavailable
+ENV SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
 # Retry transient errors 4 times (for a total of 5 attempts)
 ENV SCCACHE_DIST_MAX_RETRIES=4
 # 1hr 59min (to accommodate debug builds)

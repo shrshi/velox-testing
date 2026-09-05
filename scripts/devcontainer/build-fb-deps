@@ -4,6 +4,7 @@
 set -euo pipefail
 
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+VELOX_ROOT="${VELOX_ROOT:-${HOME}/velox}"
 NUM_THREADS="${NUM_THREADS:-0}"
 RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 REBUILD_DEPS=false
@@ -23,6 +24,7 @@ Options:
 
 Environment variables:
   FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
+  VELOX_ROOT        Velox checkout path (default: ~/velox)
   NUM_THREADS       Number of parallel jobs
 EOF
 }
@@ -64,7 +66,7 @@ if [[ "${REBUILD_DEPS}" != true ]] && \
     exit 0
 fi
 
-VELOX_VERSIONS="${HOME}/velox/scripts/setup-versions.sh"
+VELOX_VERSIONS="${VELOX_ROOT}/scripts/setup-versions.sh"
 if [[ ! -f "${VELOX_VERSIONS}" ]]; then
     echo "Error: Velox versions file not found at ${VELOX_VERSIONS}"
     exit 1
@@ -109,6 +111,12 @@ CMAKE_COMMON=(
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DBUILD_TESTS=OFF
 )
+if command -v sccache >/dev/null; then
+    CMAKE_COMMON+=(
+        -DCMAKE_C_COMPILER_LAUNCHER=sccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+    )
+fi
 
 build_pkg() {
     local name="$1" url="$2" srcsubdir="$3"
@@ -133,6 +141,17 @@ build_pkg() {
     fi
     if [[ "${srcsubdir}" != "." ]]; then
         srcdir="${srcdir}/${srcsubdir}"
+    fi
+
+    if [[ "${name}" == "fbthrift" ]] &&
+       ! grep -q "readLEFromBuffer" \
+         "${srcdir}/thrift/lib/cpp2/protocol/ProtocolReaderWithRefill.h"; then
+        local patch_file="${VELOX_ROOT}/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch"
+        if [[ ! -f "${patch_file}" ]]; then
+            echo "Error: FBThrift requires compatibility patch: ${patch_file}" >&2
+            exit 1
+        fi
+        git -C "${srcdir}" apply "${patch_file}"
     fi
 
     echo "  Configuring..."
@@ -188,7 +207,7 @@ build_pkg "fbthrift" \
 
 build_pkg "proxygen" \
     "${GITHUB}/facebook/proxygen/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
-    "." -DBUILD_SHARED_LIBS=ON
+    "." -DBUILD_SHARED_LIBS=ON -DBUILD_SAMPLES=OFF
 
 DATASKETCHES_VERSION="5.2.0"
 build_pkg "datasketches-cpp" \

@@ -29,6 +29,7 @@
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/build,target=/opt/velox-build,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../velox/fb-deps,target=/opt/fb-deps,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",

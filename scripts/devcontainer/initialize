@@ -12,7 +12,8 @@ mkdir -p \
     "${workspace_parent}/.cache" \
     "${workspace_parent}/.config/pip" \
     "${workspace_parent}/.local/share/velox-testing-cuda${cuda_version}-venvs" \
-    "${workspace_parent}/velox/build"
+    "${workspace_parent}/velox/build" \
+    "${workspace_parent}/velox/fb-deps"
 
 authorized_keys="${workspace_parent}/.config/velox-testing-authorized_keys"
 if compgen -G "${host_home}/.ssh/*.pub" >/dev/null; then

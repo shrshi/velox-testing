@@ -10,6 +10,7 @@ cuda_version="${3:?CUDA version is required}"
 mkdir -p \
     "${workspace_parent}/.aws" \
     "${workspace_parent}/.cache" \
+    "${workspace_parent}/.cargo" \
     "${workspace_parent}/.config/pip" \
     "${workspace_parent}/.local/share/velox-testing-cuda${cuda_version}-venvs" \
     "${workspace_parent}/velox/build" \

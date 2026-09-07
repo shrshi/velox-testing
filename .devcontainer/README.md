@@ -98,6 +98,7 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 | `clean-velox` | Delete Velox build artifacts |
 | `clean-presto` | Delete Presto build artifacts |
 | `uninstall-all` | Remove installed build outputs |
+| `pre-commit` | Wrapper around `pre-commit` that strips devcontainer build-tuning vars (see below) |
 | `rapids-make-pip-env` | Recreate Python environments |
 | `devcontainer-utils-sccache-dist-status` | Check distributed build cluster status |
 
@@ -109,6 +110,28 @@ build-velox --debug            # debug build
 build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
+
+### Running pre-commit hooks on Velox
+
+Always invoke the wrapper, not the venv's `pre-commit` directly:
+
+```bash
+/home/coder/velox-testing/scripts/devcontainer/pre-commit run
+```
+
+The wrapper unsets two devcontainer environment variables that break hook
+environments (CI does not set them, so hooks assume a vanilla shell):
+
+- `RUSTC_WRAPPER` (sccache): sccache sandboxes compiles with bubblewrap, which
+  hides the temporary rustup toolchain pre-commit bootstraps for Rust hooks
+  (`action-validator`), failing with `bwrap: execvp .../rustc: No such file or directory`.
+- `PYTHONSAFEPATH=1`: Python stops adding the script's directory to `sys.path`,
+  breaking Velox's `run-clang-tidy.py` (`ModuleNotFoundError: No module named 'util'`).
+
+The wrapper also defaults `BUILD_PATH` to `/opt/velox-build/release` so the
+`clang-tidy` hook finds `compile_commands.json` (it is silently skipped
+otherwise); override `BUILD_PATH` if you are validating against a different
+build tree.
 
 ## CUDA Variants
 

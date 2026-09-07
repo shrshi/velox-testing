@@ -32,6 +32,7 @@
     "source=${localWorkspaceFolder}/../velox/fb-deps,target=/opt/fb-deps,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.cargo,target=/home/coder/.cargo,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.config,target=/home/coder/.config,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda13.3-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent",
     "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",

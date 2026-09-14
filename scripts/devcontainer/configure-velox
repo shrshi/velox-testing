@@ -1,48 +1,67 @@
 #!/bin/bash
-# Run CMake configuration only for velox (useful for IDE integration)
-# Usage: configure-velox [--release|--debug] [-D<VAR>=<VALUE>]...
+# Configure Velox without building.
+# Usage: configure-velox [--release|--debug] [--local-rapids] [-D<VAR>=<VALUE>]...
 
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
-# Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+CUDAARCHS="${CUDAARCHS:-native}"
+USE_LOCAL_RAPIDS=false
+ENABLE_BENCHMARKS=false
 
 usage() {
     cat <<EOF
 Usage: configure-velox [OPTIONS] [-D<VAR>=<VALUE>]...
 
-Run CMake configuration for velox without building.
-Useful for IDE integration (CMake Tools, clangd, etc.)
-
-Any -D flags are passed through to CMake, e.g.:
-  configure-velox -DVELOX_ENABLE_BENCHMARKS=ON
+Configure Velox without building.
 
 Options:
-  --release         Configure for release build (default)
-  --debug           Configure for debug build
-  --cuda-arch ARCH  CUDA architectures (default: RAPIDS)
+  --release         Configure a release build (default)
+  --debug           Configure a debug build
+  --local-rapids    Use build outputs from sibling cuDF/RMM/RAPIDS checkouts
+  --benchmarks      Configure benchmarks
   -h, --help        Show this help message
 
 Environment variables:
   BUILD_TYPE        release or debug
-  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
-  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
-  CUDAARCHS         CUDA architectures (default: RAPIDS)
+  BUILD_BASE_DIR    Build root (default: /opt/velox-build)
+  FB_DEPS_PREFIX    Facebook dependency prefix (default: /opt/fb-deps)
+  CUDAARCHS         Must be native
 EOF
 }
 
-# Parse arguments — collect -D flags for CMake passthrough
 CMAKE_PASSTHROUGH=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
-        --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
+        --cuda-arch)
+            [[ "$2" == "native" ]] || {
+                echo "Error: only the local CUDA architecture is supported" >&2
+                exit 1
+            }
+            shift 2
+            ;;
+        --local-rapids) USE_LOCAL_RAPIDS=true; shift ;;
+        --benchmarks) ENABLE_BENCHMARKS=true; shift ;;
         -h|--help) usage; exit 0 ;;
+        -DVELOX_ENABLE_BENCHMARKS=ON)
+            ENABLE_BENCHMARKS=true
+            shift
+            ;;
+        -DCMAKE_C_COMPILER_LAUNCHER=*|-DCMAKE_CXX_COMPILER_LAUNCHER=*|\
+        -DCMAKE_CUDA_COMPILER_LAUNCHER=*|-DCMAKE_CUDA_ARCHITECTURES=*|\
+        -Dcudf_SOURCE=*|-Dcudf_ROOT=*|-Drmm_ROOT=*|-Dkvikio_ROOT=*|\
+        -Ducxx_ROOT=*|-Drapidsmpf_ROOT=*|-DVELOX_BUILD_TESTING=*|\
+        -DVELOX_BUILD_MINIMAL=*|-DVELOX_ENABLE_BENCHMARKS_BASIC=*|\
+        -DVELOX_ENABLE_GEO=*)
+            echo "Error: $1 is controlled by configure-velox" >&2
+            exit 1
+            ;;
         -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -50,76 +69,100 @@ done
 
 VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
-    echo "Error: velox repository not found at ${VELOX_DIR}"
-    echo "Please ensure velox is mounted as a sibling directory."
+    echo "Error: Velox repository not found at ${VELOX_DIR}" >&2
     exit 1
 fi
 
-cd "${VELOX_DIR}"
-
-# Enable sccache if available
-export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
-export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
-export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
-
+[[ "${CUDAARCHS}" == "native" ]] || {
+    echo "Error: CUDAARCHS must be native" >&2
+    exit 1
+}
+require_remote_sccache
+sccache --zero-stats
 resolve_cudaarchs
 
+CMAKE_FLAGS=(
+    -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+    -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow
+    -DCMAKE_C_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache
+    "-DCMAKE_CUDA_ARCHITECTURES=${CUDAARCHS}"
+    -DVELOX_ENABLE_CUDF=ON
+    -DVELOX_ENABLE_ARROW=ON
+    -DVELOX_ENABLE_PARQUET=ON
+    -DVELOX_ENABLE_GEO=OFF
+    -DVELOX_MONO_LIBRARY=OFF
+    -DVELOX_BUILD_SHARED=OFF
+    -DVELOX_BUILD_MINIMAL=OFF
+    -DVELOX_BUILD_TESTING=ON
+    "-DVELOX_ENABLE_BENCHMARKS=$([[ "${ENABLE_BENCHMARKS}" == true ]] && echo ON || echo OFF)"
+    "-DVELOX_ENABLE_BENCHMARKS_BASIC=$([[ "${ENABLE_BENCHMARKS}" == true ]] && echo ON || echo OFF)"
+    "-DCMAKE_PREFIX_PATH=${FB_DEPS_PREFIX}"
+    -Dfolly_SOURCE=SYSTEM
+    -Dxsimd_SOURCE=BUNDLED
+    -DGTest_SOURCE=BUNDLED
+    -DDuckDB_SOURCE=BUNDLED
+    -Dfaiss_SOURCE=BUNDLED
+    -Dsimdjson_SOURCE=BUNDLED
+    -DFastFloat_SOURCE=BUNDLED
+    -Dabsl_SOURCE=BUNDLED
+    -DgRPC_SOURCE=BUNDLED
+    -DArrow_SOURCE=BUNDLED
+)
+
+if [[ "${USE_LOCAL_RAPIDS}" == true ]]; then
+    CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
+    if [[ -z "${CUDF_BUILD_DIR}" ]]; then
+        echo "Error: --local-rapids requested, but no local cuDF build was found" >&2
+        exit 1
+    fi
+    CMAKE_FLAGS+=("-Dcudf_SOURCE=SYSTEM")
+    RAPIDS_FLAGS=""
+    append_rapids_cmake_flags RAPIDS_FLAGS
+    # shellcheck disable=SC2206
+    CMAKE_FLAGS+=(${RAPIDS_FLAGS})
+else
+    CMAKE_FLAGS+=(
+        -Dcudf_SOURCE=BUNDLED
+        -Dcudf_ROOT=
+        -Drmm_ROOT=
+        -Dkvikio_ROOT=
+        -Ducxx_ROOT=
+        -Drapidsmpf_ROOT=
+        -DCPM_DOWNLOAD_ALL=ON
+        -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER
+    )
+fi
+
+CMAKE_FLAGS+=("${CMAKE_PASSTHROUGH[@]}")
+
+cd "${VELOX_DIR}"
 echo -e "\033[1;36mConfiguring Velox\033[0m"
 echo "Build type:  ${BUILD_TYPE}"
 echo "CUDA archs:  ${CUDAARCHS}"
 echo "Build dir:   ${BUILD_BASE_DIR}/${BUILD_TYPE}"
-echo ""
+echo "RAPIDS:      $([[ "${USE_LOCAL_RAPIDS}" == true ]] && echo local || echo bundled)"
 
-# Build CMake flags
-# Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
-EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
-# Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint)
-EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow"
-EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_CUDF=ON"
-EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_ARROW=ON"
-EXTRA_CMAKE_FLAGS+=" -DVELOX_ENABLE_PARQUET=ON"
-EXTRA_CMAKE_FLAGS+=" -DVELOX_MONO_LIBRARY=OFF"
-EXTRA_CMAKE_FLAGS+=" -DVELOX_BUILD_SHARED=OFF"
-EXTRA_CMAKE_FLAGS+=" -DCMAKE_PREFIX_PATH=${FB_DEPS_PREFIX}"
+printf -v EXTRA_CMAKE_FLAGS ' %q' "${CMAKE_FLAGS[@]}"
+configure_once() {
+    sccache --zero-stats
+    local configure_rc=0
+    make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
+        EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS# }" \
+        BUILD_BASE_DIR="${BUILD_BASE_DIR}" || configure_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${configure_rc}"
+}
 
-# Use Folly from prebuilt FB deps
-EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=SYSTEM"
-
-# Build the dependencies below from bundled sources
-EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
-EXTRA_CMAKE_FLAGS+=" -Ds2geometry_SOURCE=BUNDLED"
-
-# Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
-CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
-if [[ -n "${CUDF_BUILD_DIR}" ]]; then
-    EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=SYSTEM"
+configure_rc=0
+configure_once || configure_rc=$?
+if [[ "${configure_rc}" == 75 ]]; then
+    echo "Remote configuration compile failed; restarting sccache and retrying once" >&2
+    restart_remote_sccache
+    configure_once
 else
-    echo "No prebuilt cudf found, will build from source"
-    EXTRA_CMAKE_FLAGS+=" -Dcudf_SOURCE=BUNDLED"
+    exit "${configure_rc}"
 fi
-append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
-
-# Append any user-supplied -D flags (passthrough to CMake)
-for flag in "${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}"; do
-    EXTRA_CMAKE_FLAGS+=" ${flag}"
-done
-
-echo ""
-
-make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
-    EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS}" BUILD_BASE_DIR="${BUILD_BASE_DIR}"
-
-echo ""
-echo -e "\033[1;32mVelox configuration complete\033[0m"
-echo "Build directory: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
-echo ""
-echo "To build, run: build-velox --${BUILD_TYPE}"

@@ -1,77 +1,67 @@
 #!/bin/bash
-# Build velox with cuDF support
-# Usage: build-velox [--release|--debug] [-j N] [--cuda-arch ARCH] [-D<VAR>=<VALUE>]...
+# Build Velox with cuDF support.
+# Usage: build-velox [--release|--debug] [-j N] [--local-rapids] [-D<VAR>=<VALUE>]...
 
 set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
-# Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${NUM_THREADS:-0}"
+NUM_THREADS="${VELOX_BUILD_JOBS:-16}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
-CUDAARCHS="${CUDAARCHS:-}"
-RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
+CUDAARCHS="${CUDAARCHS:-native}"
+USE_LOCAL_RAPIDS=false
+ENABLE_BENCHMARKS=false
 
 usage() {
     cat <<EOF
 Usage: build-velox [OPTIONS] [-D<VAR>=<VALUE>]...
 
-Build velox with cuDF support.
-
-Any -D flags are passed through to CMake via configure-velox, e.g.:
-  build-velox -DVELOX_ENABLE_BENCHMARKS=ON
+Build core Velox and tests. Existing build trees are built incrementally without
+reconfiguration. Benchmarks remain disabled unless explicitly enabled with -D.
 
 Options:
-  --release         Build in release mode (default)
-  --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
-                    RAPIDS build scripts for sccache-dist.
-  --cuda-arch ARCH  CUDA compute capability (default: auto-detect or 75)
+  --release         Build release mode (default)
+  --debug           Build debug mode
+  -j, --jobs N      Number of parallel jobs (default: 16)
+  --cuda-arch ARCH  CUDA architecture (default: native)
+  --local-rapids    Use build outputs from sibling cuDF/RMM/RAPIDS checkouts
+  --benchmarks      Build benchmarks
   -h, --help        Show this help message
 
 Environment variables:
-  BUILD_TYPE        release or debug
-  NUM_THREADS       Number of parallel jobs
-  CUDAARCHS         CUDA compute capability
-  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
-  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
+  VELOX_BUILD_JOBS  Number of parallel build jobs (default: 16)
 EOF
 }
 
-# Parse arguments — collect -D flags for CMake passthrough
-CMAKE_PASSTHROUGH=()
+CONFIGURE_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) BUILD_TYPE="release"; shift ;;
         --debug) BUILD_TYPE="debug"; shift ;;
-        -j|--jobs)
-            NUM_THREADS="$2"
-            RAPIDS_BUILD_ARGS=("$1" "$2")
-            shift 2
-            ;;
-        -j*)
-            NUM_THREADS="${1#-j}"
-            RAPIDS_BUILD_ARGS=("$1")
+        -j|--jobs) NUM_THREADS="$2"; shift 2 ;;
+        -j*) NUM_THREADS="${1#-j}"; shift ;;
+        --cuda-arch) CUDAARCHS="$2"; CONFIGURE_ARGS+=("--cuda-arch" "$2"); shift 2 ;;
+        --local-rapids) USE_LOCAL_RAPIDS=true; shift ;;
+        --benchmarks)
+            ENABLE_BENCHMARKS=true
+            CONFIGURE_ARGS+=("-DVELOX_ENABLE_BENCHMARKS=ON")
             shift
             ;;
-        --cuda-arch) CUDAARCHS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
-        -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
+        -D*) CONFIGURE_ARGS+=("$1"); shift ;;
         *) echo "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
 
-# RAPIDS build-utils emits shell assignments for n_jobs and n_load.
-eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
-NUM_THREADS="${n_jobs}"
-LOAD_LIMIT="${n_load}"
-
-VELOX_DIR="${HOME}/velox"
-if [[ ! -d "${VELOX_DIR}" ]]; then
-    echo "Error: velox repository not found at ${VELOX_DIR}"
-    echo "Please ensure velox is mounted as a sibling directory."
+if ! [[ "${NUM_THREADS}" =~ ^([1-9]|1[0-6])$ ]]; then
+    echo "Error: build jobs must be between 1 and 16" >&2
     exit 1
 fi
+
+require_remote_sccache
+sccache --zero-stats
 
 if [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] || \
    [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/wangle/wangle-config.cmake" ]] || \
@@ -79,27 +69,73 @@ if [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] || \
     build-fb-deps -j "${NUM_THREADS}" --prefix "${FB_DEPS_PREFIX}"
 fi
 
-# Run configuration — forward -D flags to configure-velox
-CONFIGURE_ARGS=("--${BUILD_TYPE}")
-if [[ -n "${CUDAARCHS}" ]]; then
-    CONFIGURE_ARGS+=("--cuda-arch" "${CUDAARCHS}")
+BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    CONFIGURE_ARGS=("--${BUILD_TYPE}" "${CONFIGURE_ARGS[@]}")
+    if [[ "${USE_LOCAL_RAPIDS}" == true ]]; then
+        CONFIGURE_ARGS+=("--local-rapids")
+    fi
+    BUILD_BASE_DIR="${BUILD_BASE_DIR}" FB_DEPS_PREFIX="${FB_DEPS_PREFIX}" \
+        CUDAARCHS="${CUDAARCHS}" configure-velox "${CONFIGURE_ARGS[@]}"
+elif [[ ${#CONFIGURE_ARGS[@]} -ne 0 ]]; then
+    echo "Error: refusing to reconfigure existing incremental build ${BUILD_DIR}" >&2
+    echo "Run configure-velox explicitly when changing CMake options." >&2
+    exit 1
 fi
-CONFIGURE_ARGS+=("${CMAKE_PASSTHROUGH[@]+"${CMAKE_PASSTHROUGH[@]}"}")
-BUILD_BASE_DIR="${BUILD_BASE_DIR}" FB_DEPS_PREFIX="${FB_DEPS_PREFIX}" configure-velox "${CONFIGURE_ARGS[@]}"
 
-# Build
-cd "${VELOX_DIR}"
+cache_value() {
+    sed -n "s/^$1:[^=]*=//p" "${BUILD_DIR}/CMakeCache.txt" | tail -1
+}
 
+[[ "$(cache_value CMAKE_C_COMPILER_LAUNCHER)" == "sccache" ]]
+[[ "$(cache_value CMAKE_CXX_COMPILER_LAUNCHER)" == "sccache" ]]
+[[ "$(cache_value CMAKE_CUDA_COMPILER_LAUNCHER)" == "sccache" ]]
+[[ "$(cache_value CMAKE_CUDA_ARCHITECTURES)" == "native" ]]
+[[ "$(cache_value VELOX_BUILD_TESTING)" == "ON" ]]
+[[ "$(cache_value VELOX_ENABLE_GEO)" == "OFF" ]]
+
+if [[ "${USE_LOCAL_RAPIDS}" == true ]]; then
+    if [[ "$(cache_value cudf_SOURCE)" != "SYSTEM" ]]; then
+        echo "Error: ${BUILD_DIR} is not configured for --local-rapids" >&2
+        exit 1
+    fi
+elif [[ "$(cache_value cudf_SOURCE)" != "BUNDLED" ]]; then
+    echo "Error: ${BUILD_DIR} is configured for --local-rapids" >&2
+    exit 1
+else
+    for root in cudf_ROOT rmm_ROOT kvikio_ROOT ucxx_ROOT rapidsmpf_ROOT; do
+        [[ -z "$(cache_value "${root}")" ]]
+    done
+fi
+
+if [[ "${ENABLE_BENCHMARKS}" == true ]]; then
+    [[ "$(cache_value VELOX_ENABLE_BENCHMARKS)" == "ON" ]]
+else
+    [[ "$(cache_value VELOX_ENABLE_BENCHMARKS)" != "ON" ]]
+    [[ "$(cache_value VELOX_ENABLE_BENCHMARKS_BASIC)" != "ON" ]]
+fi
+
+cd "${HOME}/velox"
 echo -e "\033[1;36mBuilding Velox\033[0m"
-echo "Threads:  ${NUM_THREADS}"
-echo "Load limit: ${LOAD_LIMIT}"
-echo ""
+echo "Build type: ${BUILD_TYPE}"
+echo "Threads:    ${NUM_THREADS}"
+echo "Build dir:  ${BUILD_DIR}"
+build_once() {
+    sccache --zero-stats
+    local build_rc=0
+    cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}" || build_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${build_rc}"
+}
 
-BUILD_START=${SECONDS}
-cmake --build "${BUILD_BASE_DIR}/${BUILD_TYPE}" -j "${NUM_THREADS}" -- \
-    -l "${LOAD_LIMIT}"
-
-ELAPSED=$(( SECONDS - BUILD_START ))
-echo ""
-echo -e "\033[1;32mVelox build time:\033[0m $(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m $(( ELAPSED % 60 ))s"
-echo "Binaries in: ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+build_rc=0
+build_once || build_rc=$?
+if [[ "${build_rc}" == 75 ]]; then
+    echo "Remote compilation failed; restarting sccache and retrying once" >&2
+    restart_remote_sccache
+    build_once
+elif [[ "${build_rc}" != 0 ]]; then
+    exit "${build_rc}"
+fi

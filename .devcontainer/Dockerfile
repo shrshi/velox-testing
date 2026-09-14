@@ -71,7 +71,7 @@ RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
 # Individual _SOURCE overrides must be passed as -D flags in configure-velox
 ENV VELOX_DEPENDENCY_SOURCE=SYSTEM \
     CUDA_VERSION=${CUDA_VERSION} \
-    CUDAARCHS="RAPIDS" \
+    CUDAARCHS="native" \
     DEFAULT_VIRTUAL_ENV=rapids \
     PYTHON_PACKAGE_MANAGER=pip
 
@@ -105,9 +105,10 @@ ENV SCCACHE_DIST_MAX_RETRIES=4
 ENV SCCACHE_DIST_REQUEST_TIMEOUT=7140
 ENV SCCACHE_DIST_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com"
 
-# Build as much in parallel as possible
+# Build only for the local GPU and cap local orchestration parallelism.
 ENV INFER_NUM_DEVICE_ARCHITECTURES=1 \
-    MAX_DEVICE_OBJ_TO_COMPILE_IN_PARALLEL=20
+    MAX_DEVICE_OBJ_TO_COMPILE_IN_PARALLEL=4 \
+    NUM_THREADS=4
 
 # Add velox environment to bashrc
 RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \
@@ -117,7 +118,8 @@ RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \
 
 # Create build directories before USER switch; chmod 0777 so any uid works after
 # the devcontainer feature remaps the coder uid to match the host user.
-RUN mkdir -m 0777 -p /opt/velox-build /opt/presto-build /opt/fb-deps
+RUN mkdir -m 0777 -p /opt/velox-build /opt/presto-build /opt/fb-deps && \
+    chown coder:coder /opt/velox-build /opt/presto-build /opt/fb-deps
 
 # GPG needs a user-owned home directory with restrictive permissions before
 # the host gpg-agent socket is mounted by the devcontainer configuration.

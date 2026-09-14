@@ -5,14 +5,65 @@
 # Shared constants and functions for velox/presto build scripts.
 # Source this file; do not execute directly.
 
-# RAPIDS-supported CUDA architectures for CUDA 13.x (from rapids-cmake)
-RAPIDS_CUDA_ARCHITECTURES="75-real;80-real;86-real;90a-real;100f-real;120a-real;120"
-
-# Resolve CUDAARCHS: expand "RAPIDS" or empty to the concrete arch list.
+# Resolve CUDAARCHS to the architecture of the GPU visible in this container.
 resolve_cudaarchs() {
-    if [[ "${CUDAARCHS:-}" == "RAPIDS" || -z "${CUDAARCHS:-}" ]]; then
-        export CUDAARCHS="${RAPIDS_CUDA_ARCHITECTURES}"
+    if [[ -z "${CUDAARCHS:-}" || "${CUDAARCHS}" == "native" ]]; then
+        export CUDAARCHS="native"
     fi
+}
+
+require_remote_sccache() {
+    command -v sccache >/dev/null || {
+        echo "Error: sccache is required" >&2
+        return 1
+    }
+    command -v jq >/dev/null || {
+        echo "Error: jq is required to validate sccache-dist" >&2
+        return 1
+    }
+
+    export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
+    export SCCACHE_DIST_MAX_RETRIES="${SCCACHE_DIST_MAX_RETRIES:-4}"
+    export CMAKE_C_COMPILER_LAUNCHER=sccache
+    export CMAKE_CXX_COMPILER_LAUNCHER=sccache
+    export CMAKE_CUDA_COMPILER_LAUNCHER=sccache
+
+    sccache --start-server >/dev/null
+    sccache --dist-auth >/dev/null
+
+    local status
+    status=$(sccache --dist-status --stats-format json)
+    if ! jq -e '(.SchedulerStatus[1].servers // []) | length > 0' \
+        <<<"${status}" >/dev/null; then
+        echo "Error: sccache-dist scheduler reports no build servers" >&2
+        return 1
+    fi
+}
+
+validate_remote_sccache_stats() {
+    local stats
+    stats=$(sccache --show-adv-stats --stats-format json)
+    if ! jq -e '
+        .stats.requests_not_cacheable == 0 and
+        .stats.requests_unsupported_compiler == 0 and
+        .stats.non_cacheable_compilations == 0 and
+        .stats.dist_errors == 0
+    ' <<<"${stats}" >/dev/null; then
+        echo "Error: compilation did not remain fully remote through sccache" >&2
+        jq '.stats | {
+            requests_not_cacheable,
+            requests_unsupported_compiler,
+            non_cacheable_compilations,
+            dist_errors
+        }' <<<"${stats}" >&2
+        return 1
+    fi
+}
+
+restart_remote_sccache() {
+    sccache --stop-server >/dev/null || true
+    sccache --start-server >/dev/null
+    require_remote_sccache
 }
 
 # Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, rapidsmpf, cudf).

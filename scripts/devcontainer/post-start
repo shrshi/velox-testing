@@ -21,8 +21,8 @@ fi
 # Link editor and agent configuration from the host dotfiles mount.
 if [[ -d "${DOTFILES_DIR}" ]]; then
     mkdir -p "${HOME}/.config/nvim" "${HOME}/.pi"
-    ln -sfn "${DOTFILES_DIR}/init.lua" "${HOME}/.config/nvim/init.lua"
-    ln -sfn "${DOTFILES_DIR}/lua" "${HOME}/.config/nvim/lua"
+    ln -sfn ../../dotfiles/init.lua "${HOME}/.config/nvim/init.lua"
+    ln -sfn ../../dotfiles/lua "${HOME}/.config/nvim/lua"
     ln -sfn "${DOTFILES_DIR}/.opencode" "${HOME}/.opencode"
     ln -sfn "${DOTFILES_DIR}/.pi/agent" "${HOME}/.pi/agent"
 else

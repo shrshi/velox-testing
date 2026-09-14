@@ -7,7 +7,7 @@ set -euo pipefail
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
-NUM_THREADS="${NUM_THREADS:-2}"  # Limited to avoid OOM with GPU tests
+NUM_THREADS="${NUM_THREADS:-2}" # Limited to avoid OOM with GPU tests
 CUDA_ONLY=false
 
 usage() {
@@ -55,14 +55,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${NUM_THREADS}" == "0" ]]; then
-    NUM_THREADS="$(nproc --all)"
+if ! [[ "${NUM_THREADS}" =~ ^[1-4]$ ]]; then
+    echo "Error: test jobs must be between 1 and 4" >&2
+    exit 1
 fi
 
 BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
 if [[ ! -d "${BUILD_DIR}" ]]; then
     echo "Error: Build directory not found at ${BUILD_DIR}"
-    echo "Please run build-velox first."
+    echo "Please configure and build Velox first."
     exit 1
 fi
 

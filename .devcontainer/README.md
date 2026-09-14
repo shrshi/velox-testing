@@ -6,7 +6,7 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
-Builds use the distributed build cluster via `sccache-dist`; use `-j0`.
+Standalone Velox builds use the distributed build cluster via `sccache-dist` and default to 16 jobs.
 
 ```bash
 # 1. Clone sibling repos under the same parent directory
@@ -26,9 +26,9 @@ code velox-testing
 # 3. Reopen in container (pick container based on CUDA version)
 
 # 4. Build
-build-all -j0       # Build RAPIDS libraries, standalone Velox, then Presto
-build-velox -j0     # Build standalone Velox
-build-presto -j0    # Build Presto; syncs ~/velox and builds it inside the Presto tree
+build-all -j4       # Build RAPIDS libraries, standalone Velox, then Presto
+build-velox         # Build standalone Velox with bundled RAPIDS dependencies
+build-presto -j4    # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
 test-velox      # Run Velox test suite
@@ -72,9 +72,9 @@ deps:   /opt/fb-deps for folly, fbthrift, proxygen, and related libraries
 velox:  rsync ~/velox/ into ~/presto/presto-native-execution/velox/
 ```
 
-Both builds consume **cudf**, **rmm**, **ucxx**, and **kvikio** built from source in the RAPIDS devcontainer.
+The Presto build consumes **cudf**, **rmm**, **ucxx**, and **kvikio** built from source in the RAPIDS devcontainer.
 
-**Standalone Velox** bundles all its dependencies (folly, xsimd, Arrow, etc.) — no prerequisite steps.
+**Standalone Velox** bundles its pinned RAPIDS and other dependencies by default. Pass `--local-rapids` only when explicitly testing sibling cuDF/RMM build outputs.
 
 **Presto** requires Facebook's OSS stack (folly, fbthrift, proxygen, etc.) for its thrift RPC layer. `build-presto` builds these automatically on first run and caches them at `/opt/fb-deps`. Subsequent runs skip this step unless `--rebuild-deps` is passed.
 
@@ -105,8 +105,9 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 All commands accept `--help`. Common options:
 
 ```bash
-build-velox -j0                # use sccache-dist distributed builds
+build-velox                    # 16-job sccache-dist build
 build-velox --debug            # debug build
+build-velox --local-rapids     # explicitly use sibling RAPIDS builds
 build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
@@ -137,14 +138,14 @@ build tree.
 
 Devcontainer configurations are provided for CUDA 13 and CUDA 12. VS Code will prompt you to choose when opening the workspace.
 
-The `CUDAARCHS` environment variable defaults to `RAPIDS`, which expands to all RAPIDS-supported architectures.
+The `CUDAARCHS` environment variable defaults to `native`, so only the GPU architecture visible in the container is compiled.
 
 ## Build Outputs
 
 | Build | Location | Contents |
 |-------|----------|----------|
 | FB deps | `/opt/fb-deps/` | folly, fbthrift, proxygen (auto-built by `build-presto`) |
-| Velox | `/opt/velox-build/release/` | Mono shared library, tests |
+| Velox | `/opt/velox-build/release/` | Static libraries, tests |
 | Presto | `/opt/presto-build/` | `presto_server` binary, tests |
 
 Build directories are under `/opt/` so they don't pollute mounted source trees and persist across container sessions (unless the container is recreated).
@@ -155,12 +156,12 @@ Velox has many dependencies. Each can be `SYSTEM` (pre-installed) or `BUNDLED` (
 
 | Dependency | Velox Build | Presto Build | Source |
 |------------|------------|--------------|--------|
-| folly | BUNDLED | SYSTEM | Built from source / `/opt/fb-deps` |
+| folly | SYSTEM | SYSTEM | `/opt/fb-deps` |
 | xsimd | BUNDLED | SYSTEM | Built from source / `/opt/fb-deps` |
-| cudf | SYSTEM | SYSTEM | RAPIDS build |
-| rmm | SYSTEM | SYSTEM | RAPIDS build |
-| ucxx | SYSTEM | SYSTEM | RAPIDS build |
-| kvikio | SYSTEM | SYSTEM | RAPIDS build |
+| cudf | BUNDLED | SYSTEM | Velox-pinned source / RAPIDS build |
+| rmm | BUNDLED | SYSTEM | Velox-pinned source / RAPIDS build |
+| ucxx | BUNDLED | SYSTEM | Velox-pinned source / RAPIDS build |
+| kvikio | BUNDLED | SYSTEM | Velox-pinned source / RAPIDS build |
 | Arrow | BUNDLED | BUNDLED | Built from source |
 | DuckDB | BUNDLED | BUNDLED | Built from source |
 | GTest | BUNDLED | BUNDLED | Built from source |
@@ -178,4 +179,4 @@ The build scripts include several workarounds for toolchain issues:
 
 ## Scripts
 
-All devcontainer scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_common.sh`.
+All devcontainer scripts live in `scripts/devcontainer/` and are installed to `/usr/local/bin/` in the container image. They share common functions via `_devcontainer_common_utils.sh`.

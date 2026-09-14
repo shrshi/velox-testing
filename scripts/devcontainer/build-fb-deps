@@ -2,10 +2,12 @@
 # Build Facebook OSS dependencies used by Velox Parquet and Presto native builds.
 
 set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 VELOX_ROOT="${VELOX_ROOT:-${HOME}/velox}"
-NUM_THREADS="${NUM_THREADS:-0}"
+NUM_THREADS="${NUM_THREADS:-4}"
 RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 REBUILD_DEPS=false
 
@@ -16,8 +18,7 @@ Usage: build-fb-deps [OPTIONS]
 Build Facebook OSS dependencies into FB_DEPS_PREFIX.
 
 Options:
-  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
-                    RAPIDS build scripts for sccache-dist.
+  -j, --jobs N      Number of parallel jobs (default: 4, maximum: 4).
   --prefix PATH     Install prefix (default: /opt/fb-deps)
   --rebuild         Force rebuild even if dependencies are already installed
   -h, --help        Show this help message
@@ -51,9 +52,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
+eval "$(PARALLEL_LEVEL=4 rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
 NUM_THREADS="${n_jobs}"
-
+if (( NUM_THREADS < 1 || NUM_THREADS > 4 )); then
+    echo "Error: build jobs must be between 1 and 4" >&2
+    exit 1
+fi
 if [[ "${REBUILD_DEPS}" != true ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/cmake/folly/folly-config.cmake" ]] && \
    [[ -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] && \
@@ -65,6 +69,8 @@ if [[ "${REBUILD_DEPS}" != true ]] && \
     echo "Facebook OSS deps found at ${FB_DEPS_PREFIX} (use --rebuild to force)"
     exit 0
 fi
+
+require_remote_sccache
 
 VELOX_VERSIONS="${VELOX_ROOT}/scripts/setup-versions.sh"
 if [[ ! -f "${VELOX_VERSIONS}" ]]; then
@@ -111,12 +117,10 @@ CMAKE_COMMON=(
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DBUILD_TESTS=OFF
 )
-if command -v sccache >/dev/null; then
-    CMAKE_COMMON+=(
-        -DCMAKE_C_COMPILER_LAUNCHER=sccache
-        -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-    )
-fi
+CMAKE_COMMON+=(
+    -DCMAKE_C_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+)
 
 build_pkg() {
     local name="$1" url="$2" srcsubdir="$3"
@@ -175,6 +179,7 @@ echo ""
 mkdir -p "${FB_DEPS_PREFIX}"
 rm -rf "${SCRATCH_DIR}"
 mkdir -p "${SCRATCH_DIR}"
+sccache --zero-stats
 
 build_pkg "fast_float" \
     "${GITHUB}/fastfloat/fast_float/archive/refs/tags/${FAST_FLOAT_VERSION}.tar.gz" \
@@ -215,6 +220,7 @@ build_pkg "datasketches-cpp" \
     "." -DBUILD_TESTS=OFF
 
 rm -rf "${SCRATCH_DIR}"
+validate_remote_sccache_stats
 
 echo "${FB_DEPS_PREFIX}/lib" | sudo tee /etc/ld.so.conf.d/fb-deps.conf >/dev/null
 sudo ldconfig

@@ -4,6 +4,7 @@
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family fb-deps
 
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 VELOX_ROOT="${VELOX_ROOT:-${HOME}/velox}"
@@ -122,6 +123,28 @@ CMAKE_COMMON+=(
     -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 )
 
+run_remote_once() {
+    sccache --zero-stats
+    local command_rc=0
+    "$@" || command_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${command_rc}"
+}
+
+run_remote_with_retry() {
+    local command_rc=0
+    run_remote_once "$@" || command_rc=$?
+    if [[ "${command_rc}" == 75 ]]; then
+        echo "Remote compilation failed; restarting sccache and retrying once" >&2
+        restart_remote_sccache
+        run_remote_once "$@"
+    elif [[ "${command_rc}" != 0 ]]; then
+        return "${command_rc}"
+    fi
+}
+
 build_pkg() {
     local name="$1" url="$2" srcsubdir="$3"
     shift 3
@@ -159,11 +182,11 @@ build_pkg() {
     fi
 
     echo "  Configuring..."
-    cmake -Wno-dev -B "${pkg_dir}/build" -S "${srcdir}" \
+    run_remote_with_retry cmake -Wno-dev -B "${pkg_dir}/build" -S "${srcdir}" \
         "${CMAKE_COMMON[@]}" "$@"
 
     echo "  Building (${NUM_THREADS} threads)..."
-    cmake --build "${pkg_dir}/build" -j "${NUM_THREADS}"
+    run_remote_with_retry cmake --build "${pkg_dir}/build" -j "${NUM_THREADS}"
 
     echo "  Installing..."
     cmake --install "${pkg_dir}/build"
@@ -179,7 +202,6 @@ echo ""
 mkdir -p "${FB_DEPS_PREFIX}"
 rm -rf "${SCRATCH_DIR}"
 mkdir -p "${SCRATCH_DIR}"
-sccache --zero-stats
 
 build_pkg "fast_float" \
     "${GITHUB}/fastfloat/fast_float/archive/refs/tags/${FAST_FLOAT_VERSION}.tar.gz" \
@@ -220,7 +242,6 @@ build_pkg "datasketches-cpp" \
     "." -DBUILD_TESTS=OFF
 
 rm -rf "${SCRATCH_DIR}"
-validate_remote_sccache_stats
 
 echo "${FB_DEPS_PREFIX}/lib" | sudo tee /etc/ld.so.conf.d/fb-deps.conf >/dev/null
 sudo ldconfig

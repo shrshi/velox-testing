@@ -5,6 +5,7 @@
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family velox
 
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"

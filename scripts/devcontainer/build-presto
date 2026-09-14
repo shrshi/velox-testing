@@ -5,6 +5,7 @@
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family presto
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
@@ -64,6 +65,10 @@ done
 eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
 NUM_THREADS="${n_jobs}"
 LOAD_LIMIT="${n_load}"
+if (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
+    echo "Error: build jobs must be between 1 and 32" >&2
+    exit 1
+fi
 
 PRESTO_DIR="${HOME}/presto/presto-native-execution"
 if [[ ! -d "${PRESTO_DIR}" ]]; then
@@ -92,11 +97,7 @@ if [[ -d "${VELOX_DIR}" ]]; then
         "${VELOX_DIR}/" "${PRESTO_DIR}/velox/"
 fi
 
-# Enable sccache if available
-export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-sccache}"
-export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-sccache}"
-export CMAKE_CUDA_COMPILER_LAUNCHER="${CMAKE_CUDA_COMPILER_LAUNCHER:-sccache}"
-
+require_remote_sccache
 resolve_cudaarchs
 
 echo ""
@@ -158,7 +159,26 @@ eval "cmake -B \"${BUILD_BASE_DIR}\" \
     -DMAX_LINK_JOBS=\"${MAX_LINK_JOBS:-}\" \
     -DMAX_HIGH_MEM_JOBS=\"${MAX_HIGH_MEM_JOBS:-}\" \
     ${EXTRA_CMAKE_FLAGS}"
-ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" -l "${LOAD_LIMIT}"
+
+build_once() {
+    sccache --zero-stats
+    local build_rc=0
+    ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" -l "${LOAD_LIMIT}" || build_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${build_rc}"
+}
+
+build_rc=0
+build_once || build_rc=$?
+if [[ "${build_rc}" == 75 ]]; then
+    echo "Remote compilation failed; restarting sccache and retrying once" >&2
+    restart_remote_sccache
+    build_once
+elif [[ "${build_rc}" != 0 ]]; then
+    exit "${build_rc}"
+fi
 
 ELAPSED=$(( SECONDS - BUILD_START ))
 echo ""

@@ -12,6 +12,31 @@ resolve_cudaarchs() {
     fi
 }
 
+select_sccache_family() {
+    local family="$1"
+
+    case "${family}" in
+        rapids)  export SCCACHE_SERVER_PORT=4227 ;;
+        velox)   export SCCACHE_SERVER_PORT=4228 ;;
+        presto)  export SCCACHE_SERVER_PORT=4229 ;;
+        fb-deps) export SCCACHE_SERVER_PORT=4230 ;;
+        *)
+            echo "Error: unknown sccache family: ${family}" >&2
+            return 1
+            ;;
+    esac
+
+    export SCCACHE_DIR="/tmp/sccache/${family}"
+    mkdir -p "${SCCACHE_DIR}"
+
+    export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
+    export SCCACHE_DIST_MAX_RETRIES="${SCCACHE_DIST_MAX_RETRIES:-4}"
+    unset SCCACHE_NO_DIST_COMPILE
+    export CMAKE_C_COMPILER_LAUNCHER=sccache
+    export CMAKE_CXX_COMPILER_LAUNCHER=sccache
+    export CMAKE_CUDA_COMPILER_LAUNCHER=sccache
+}
+
 require_remote_sccache() {
     command -v sccache >/dev/null || {
         echo "Error: sccache is required" >&2
@@ -21,14 +46,14 @@ require_remote_sccache() {
         echo "Error: jq is required to validate sccache-dist" >&2
         return 1
     }
+    [[ -n "${SCCACHE_SERVER_PORT:-}" && -n "${SCCACHE_DIR:-}" ]] || {
+        echo "Error: call select_sccache_family before require_remote_sccache" >&2
+        return 1
+    }
 
-    export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
-    export SCCACHE_DIST_MAX_RETRIES="${SCCACHE_DIST_MAX_RETRIES:-4}"
-    export CMAKE_C_COMPILER_LAUNCHER=sccache
-    export CMAKE_CXX_COMPILER_LAUNCHER=sccache
-    export CMAKE_CUDA_COMPILER_LAUNCHER=sccache
-
-    sccache --start-server >/dev/null
+    if ! sccache --show-stats >/dev/null 2>&1; then
+        sccache --start-server >/dev/null
+    fi
     sccache --dist-auth >/dev/null
 
     local status
@@ -61,7 +86,7 @@ validate_remote_sccache_stats() {
 }
 
 restart_remote_sccache() {
-    sccache --stop-server >/dev/null || true
+    sccache --stop-server >/dev/null 2>&1 || true
     sccache --start-server >/dev/null
     require_remote_sccache
 }

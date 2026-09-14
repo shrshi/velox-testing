@@ -9,6 +9,9 @@
 # Any unrecognised arguments are passed through to the RAPIDS configure-all.
 
 set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family rapids
 
 usage() {
     cat <<EOF

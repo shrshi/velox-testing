@@ -5,9 +5,10 @@
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family velox
 
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${VELOX_BUILD_JOBS:-16}"
+NUM_THREADS="${VELOX_BUILD_JOBS:-32}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 CUDAARCHS="${CUDAARCHS:-native}"
@@ -18,20 +19,21 @@ usage() {
     cat <<EOF
 Usage: build-velox [OPTIONS] [-D<VAR>=<VALUE>]...
 
-Build core Velox and tests. Existing build trees are built incrementally without
-reconfiguration. Benchmarks remain disabled unless explicitly enabled with -D.
+Build Velox-cuDF libraries and tests. Existing build trees are built incrementally
+without reconfiguration. Core Velox executables are not built. Velox-cuDF
+benchmarks remain disabled unless explicitly enabled.
 
 Options:
   --release         Build release mode (default)
   --debug           Build debug mode
-  -j, --jobs N      Number of parallel jobs (default: 16)
+  -j, --jobs N      Number of parallel jobs (default: 32)
   --cuda-arch ARCH  CUDA architecture (default: native)
   --local-rapids    Use build outputs from sibling cuDF/RMM/RAPIDS checkouts
-  --benchmarks      Build benchmarks
+  --benchmarks      Build Velox-cuDF benchmarks
   -h, --help        Show this help message
 
 Environment variables:
-  VELOX_BUILD_JOBS  Number of parallel build jobs (default: 16)
+  VELOX_BUILD_JOBS  Number of parallel build jobs (default: 32)
 EOF
 }
 
@@ -55,8 +57,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if ! [[ "${NUM_THREADS}" =~ ^([1-9]|1[0-6])$ ]]; then
-    echo "Error: build jobs must be between 1 and 16" >&2
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] ||
+   (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
+    echo "Error: build jobs must be between 1 and 32" >&2
     exit 1
 fi
 
@@ -115,15 +118,22 @@ else
     [[ "$(cache_value VELOX_ENABLE_BENCHMARKS_BASIC)" != "ON" ]]
 fi
 
+BUILD_TARGETS=(velox/experimental/cudf/tests/all)
+if [[ "${ENABLE_BENCHMARKS}" == true ]]; then
+    BUILD_TARGETS+=(velox/experimental/cudf/benchmarks/all)
+fi
+
 cd "${HOME}/velox"
-echo -e "\033[1;36mBuilding Velox\033[0m"
+echo -e "\033[1;36mBuilding Velox-cuDF\033[0m"
 echo "Build type: ${BUILD_TYPE}"
 echo "Threads:    ${NUM_THREADS}"
 echo "Build dir:  ${BUILD_DIR}"
+echo "Targets:    ${BUILD_TARGETS[*]}"
 build_once() {
     sccache --zero-stats
     local build_rc=0
-    cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}" || build_rc=$?
+    cmake --build "${BUILD_DIR}" --target "${BUILD_TARGETS[@]}" \
+        --parallel "${NUM_THREADS}" || build_rc=$?
     if ! validate_remote_sccache_stats; then
         return 75
     fi

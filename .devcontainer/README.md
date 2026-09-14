@@ -6,7 +6,7 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
-Standalone Velox builds use the distributed build cluster via `sccache-dist` and default to 16 jobs.
+Standalone Velox-cuDF builds use the distributed build cluster via `sccache-dist` and default to 32 jobs. They build Velox-cuDF libraries and tests plus their library dependencies, but not core Velox test, fuzzer, or benchmark executables.
 
 ```bash
 # 1. Clone sibling repos under the same parent directory
@@ -27,7 +27,7 @@ code velox-testing
 
 # 4. Build
 build-all -j4       # Build RAPIDS libraries, standalone Velox, then Presto
-build-velox         # Build standalone Velox with bundled RAPIDS dependencies
+build-velox         # Build Velox-cuDF tests with bundled RAPIDS dependencies
 build-presto -j4    # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
@@ -55,7 +55,7 @@ All repos are bind-mounted into the container under `/home/coder/`.
 
 ## Build Architecture
 
-`build-velox` builds `~/velox` as a standalone Velox tree:
+`build-velox` builds the Velox-cuDF targets in `~/velox` as a standalone tree:
 
 ```
 source: ~/velox
@@ -88,7 +88,8 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 
 | Command | Description |
 |---------|-------------|
-| `build-velox` | Build standalone Velox with cuDF (fully self-contained) |
+| `build-libcudf-cpp` | Build libcudf, tests, and benchmarks without installing |
+| `build-velox` | Build Velox-cuDF libraries and tests (fully self-contained) |
 | `build-presto` | Build Presto (auto-builds FB deps on first run) |
 | `configure-all` | Configure all build trees |
 | `configure-velox` | CMake configure only (for IDE integration) |
@@ -105,9 +106,11 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 All commands accept `--help`. Common options:
 
 ```bash
-build-velox                    # 16-job sccache-dist build
-build-velox --debug            # debug build
+build-libcudf-cpp              # 32-job native-architecture libcudf build
+build-velox                    # 32-job Velox-cuDF library and test build
+build-velox --debug            # debug Velox-cuDF build
 build-velox --local-rapids     # explicitly use sibling RAPIDS builds
+build-velox --benchmarks       # also build Velox-cuDF benchmarks
 build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
@@ -140,12 +143,25 @@ Devcontainer configurations are provided for CUDA 13 and CUDA 12. VS Code will p
 
 The `CUDAARCHS` environment variable defaults to `native`, so only the GPU architecture visible in the container is compiled.
 
+## Distributed compilation
+
+Builds require sccache-dist and disable fallback to local compilation. Each build family uses a dedicated local sccache client daemon while sharing the same remote scheduler and worker fleet:
+
+| Family | Port | State directory |
+|--------|-----:|-----------------|
+| RAPIDS/cuDF | 4227 | `/tmp/sccache/rapids` |
+| Velox | 4228 | `/tmp/sccache/velox` |
+| Presto | 4229 | `/tmp/sccache/presto` |
+| Facebook dependencies | 4230 | `/tmp/sccache/fb-deps` |
+
+This isolation allows a failed build to restart its own client daemon and retry without interrupting another build family. Do not run concurrent builds within one family because they share statistics used to verify that compilation remained remote.
+
 ## Build Outputs
 
 | Build | Location | Contents |
 |-------|----------|----------|
 | FB deps | `/opt/fb-deps/` | folly, fbthrift, proxygen (auto-built by `build-presto`) |
-| Velox | `/opt/velox-build/release/` | Static libraries, tests |
+| Velox | `/opt/velox-build/release/` | Velox-cuDF libraries and tests plus required libraries |
 | Presto | `/opt/presto-build/` | `presto_server` binary, tests |
 
 Build directories are under `/opt/` so they don't pollute mounted source trees and persist across container sessions (unless the container is recreated).

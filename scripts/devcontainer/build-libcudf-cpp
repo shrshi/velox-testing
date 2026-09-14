@@ -1,0 +1,106 @@
+#!/bin/bash
+# Configure when needed and build libcudf, tests, and benchmarks with remote sccache.
+
+set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family rapids
+
+NUM_THREADS=32
+CMAKE_ARGS=()
+
+usage() {
+    cat <<EOF
+Usage: build-libcudf-cpp [OPTIONS] [-D<VAR>=<VALUE>]...
+
+Build libcudf, tests, and benchmarks without installing them. Existing compatible
+build trees are built incrementally without explicit reconfiguration.
+
+Options:
+  -j, --jobs N      Number of parallel jobs (default: 32, maximum: 32)
+  -D<VAR>=<VALUE>   Additional CMake cache entry
+  -h, --help        Show this help message
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs|--parallel) NUM_THREADS="$2"; shift 2 ;;
+        -j*) NUM_THREADS="${1#-j}"; shift ;;
+        -DBUILD_TESTS=*|-DBUILD_BENCHMARKS=*|-DCMAKE_CUDA_ARCHITECTURES=*|\
+        -DCMAKE_C_COMPILER_LAUNCHER=*|-DCMAKE_CXX_COMPILER_LAUNCHER=*|\
+        -DCMAKE_CUDA_COMPILER_LAUNCHER=*)
+            echo "Error: $1 is controlled by build-libcudf-cpp" >&2
+            exit 1
+            ;;
+        -D*) CMAKE_ARGS+=("$1"); shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+    esac
+done
+
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] ||
+   (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
+    echo "Error: build jobs must be between 1 and 32" >&2
+    exit 1
+fi
+
+SOURCE_DIR="${HOME}/cudf/cpp"
+BUILD_DIR="${SOURCE_DIR}/build/latest"
+CACHE="${BUILD_DIR}/CMakeCache.txt"
+
+cache_value() {
+    sed -n "s/^$1:[^=]*=//p" "${CACHE}" | tail -1
+}
+
+needs_configure=false
+if [[ ! -f "${CACHE}" ]]; then
+    needs_configure=true
+else
+    [[ "$(cache_value BUILD_TESTS)" == "ON" ]] || needs_configure=true
+    [[ "$(cache_value BUILD_BENCHMARKS)" == "ON" ]] || needs_configure=true
+    [[ "$(cache_value CMAKE_CUDA_ARCHITECTURES)" == "native" ]] || needs_configure=true
+    [[ "$(cache_value CMAKE_C_COMPILER_LAUNCHER)" == "sccache" ]] || needs_configure=true
+    [[ "$(cache_value CMAKE_CXX_COMPILER_LAUNCHER)" == "sccache" ]] || needs_configure=true
+    [[ "$(cache_value CMAKE_CUDA_COMPILER_LAUNCHER)" == "sccache" ]] || needs_configure=true
+    if [[ ${#CMAKE_ARGS[@]} -ne 0 ]]; then
+        needs_configure=true
+    fi
+fi
+
+require_remote_sccache
+
+run_remote_once() {
+    sccache --zero-stats
+    local command_rc=0
+    "$@" || command_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${command_rc}"
+}
+
+run_remote_with_retry() {
+    local command_rc=0
+    run_remote_once "$@" || command_rc=$?
+    if [[ "${command_rc}" == 75 ]]; then
+        echo "Remote compilation failed; restarting sccache and retrying once" >&2
+        restart_remote_sccache
+        run_remote_once "$@"
+    elif [[ "${command_rc}" != 0 ]]; then
+        return "${command_rc}"
+    fi
+}
+
+if [[ "${needs_configure}" == true ]]; then
+    run_remote_with_retry cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
+        -DBUILD_TESTS=ON \
+        -DBUILD_BENCHMARKS=ON \
+        -DCMAKE_CUDA_ARCHITECTURES=native \
+        -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+        -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache \
+        "${CMAKE_ARGS[@]}"
+fi
+
+run_remote_with_retry cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}"

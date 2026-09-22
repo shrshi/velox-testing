@@ -6,7 +6,10 @@
     "args": {
       "CUDA_VERSION": "12.9",
       "BASE": "rapidsai/devcontainers:latest-cpp-cuda12.9-ucx1.21.0-openmpi5.0.10"
-    }
+    },
+    "cacheFrom": [
+      "ghcr.io/rapidsai/velox-testing/devcontainer:latest-cuda12.9"
+    ]
   },
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
@@ -25,6 +28,8 @@
     "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../velox/build,target=/opt/velox-build,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../velox/fb-deps,target=/opt/fb-deps,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.agents,target=/home/coder/.agents,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",

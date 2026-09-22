@@ -71,7 +71,8 @@ if [[ -n "${BUILD_TYPE}" ]]; then
 fi
 
 if [[ -x /usr/bin/build-all-cpp ]]; then
-    /usr/bin/build-all-cpp "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+    PATH="/usr/local/lib/rapids-policy:${PATH}" \
+        /usr/bin/build-all-cpp "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
 fi
 
 build-velox "${VELOX_PRESTO_ARGS[@]+"${VELOX_PRESTO_ARGS[@]}"}"

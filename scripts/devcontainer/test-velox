@@ -4,9 +4,13 @@
 
 set -euo pipefail
 
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
 NUM_THREADS="${NUM_THREADS:-2}" # Limited to avoid OOM with GPU tests
 CUDA_ONLY=false
 
@@ -26,7 +30,8 @@ Options:
 
 Environment variables:
   BUILD_TYPE          release or debug (default: release)
-  BUILD_BASE_DIR      Build base directory (default: /opt/velox-build)
+  VELOX_ROOT          Velox source root (default: current Velox worktree or ~/velox)
+  BUILD_BASE_DIR      Build base directory (default: <Velox source>/build)
   NUM_THREADS         Number of parallel test jobs
 EOF
 }

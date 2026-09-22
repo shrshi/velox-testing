@@ -71,7 +71,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -x /usr/bin/configure-all ]]; then
-    /usr/bin/configure-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
+    PATH="/usr/local/lib/rapids-policy:${PATH}" \
+        /usr/bin/configure-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"
 fi
 
 configure-velox "${VELOX_ARGS[@]+"${VELOX_ARGS[@]}"}"

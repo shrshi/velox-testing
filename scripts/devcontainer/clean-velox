@@ -3,9 +3,12 @@
 # Usage: clean-velox [--release|--debug|--all]
 
 set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 
 BUILD_TYPE="${BUILD_TYPE:-}"
-BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
 
 usage() {
     cat <<EOF
@@ -21,7 +24,8 @@ Options:
 
 Environment variables:
   BUILD_TYPE        release or debug
-  BUILD_BASE_DIR    Base directory for build output (default: /opt/velox-build)
+  VELOX_ROOT        Velox source root (default: current Velox worktree or ~/velox)
+  BUILD_BASE_DIR    Build base directory (default: <Velox source>/build)
 EOF
 }
 

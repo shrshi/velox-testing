@@ -1,0 +1,28 @@
+#!/bin/bash
+# Enforce local libcudf build policy for RAPIDS build-utils entry points.
+
+set -euo pipefail
+
+COMMAND="$(basename "$0")"
+REAL_COMMAND="/tmp/rapids-build-utils/${COMMAND}"
+
+if [[ ! -x "${REAL_COMMAND}" ]]; then
+    echo "Error: RAPIDS command not found: ${REAL_COMMAND}" >&2
+    exit 1
+fi
+
+case "${COMMAND}" in
+    build-cudf-cpp)
+        exec /usr/local/bin/build-libcudf-cpp "$@"
+        ;;
+    configure-cudf-cpp)
+        exec /usr/local/bin/configure-libcudf-cpp "$@"
+        ;;
+    build-all|build-all-cpp|configure-all)
+        export PATH="/usr/local/lib/rapids-policy:${PATH}"
+        exec "${REAL_COMMAND}" "$@"
+        ;;
+    *)
+        exec "${REAL_COMMAND}" "$@"
+        ;;
+esac

@@ -28,8 +28,11 @@
     "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../velox-worktrees,target=/home/coder/velox-worktrees,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../velox-review-worktrees,target=/home/coder/velox-review-worktrees,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/build,target=/opt/velox-build,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/fb-deps,target=/opt/fb-deps,type=bind,consistency=consistent",
+    "source=${localWorkspaceFolder}/../.agents,target=/home/coder/.agents,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cargo,target=/home/coder/.cargo,type=bind,consistency=consistent",
@@ -53,7 +56,7 @@
     "--pids-limit", "65536",
     "--ulimit", "nofile=500000"
   ],
-  "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",
+  "postCreateCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/install-rapids-policy && /bin/bash /home/coder/velox-testing/scripts/devcontainer/post-create",
   "postStartCommand": "/bin/bash /home/coder/velox-testing/scripts/devcontainer/post-start",
   "postAttachCommand": [
     "/bin/bash",

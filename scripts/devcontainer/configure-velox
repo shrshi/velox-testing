@@ -8,7 +8,8 @@ source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 select_sccache_family velox
 
 BUILD_TYPE="${BUILD_TYPE:-release}"
-BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/velox-build}"
+VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 CUDAARCHS="${CUDAARCHS:-native}"
 USE_LOCAL_RAPIDS=false
@@ -29,7 +30,8 @@ Options:
 
 Environment variables:
   BUILD_TYPE        release or debug
-  BUILD_BASE_DIR    Build root (default: /opt/velox-build)
+  VELOX_ROOT        Velox source root (default: current Velox worktree or ~/velox)
+  BUILD_BASE_DIR    Build root (default: <Velox source>/build)
   FB_DEPS_PREFIX    Facebook dependency prefix (default: /opt/fb-deps)
   CUDAARCHS         Must be native
 EOF
@@ -68,7 +70,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-VELOX_DIR="${HOME}/velox"
 if [[ ! -d "${VELOX_DIR}" ]]; then
     echo "Error: Velox repository not found at ${VELOX_DIR}" >&2
     exit 1
@@ -140,6 +141,7 @@ CMAKE_FLAGS+=("${CMAKE_PASSTHROUGH[@]}")
 
 cd "${VELOX_DIR}"
 echo -e "\033[1;36mConfiguring Velox\033[0m"
+echo "Source dir:  ${VELOX_DIR}"
 echo "Build type:  ${BUILD_TYPE}"
 echo "CUDA archs:  ${CUDAARCHS}"
 echo "Build dir:   ${BUILD_BASE_DIR}/${BUILD_TYPE}"

@@ -1,0 +1,20 @@
+#!/bin/bash
+# Install libcudf policy wrappers after the RAPIDS devcontainer feature.
+
+set -euo pipefail
+
+POLICY_DIR=/usr/local/lib/rapids-policy
+WRAPPER_SOURCE=/usr/local/bin/rapids-command-wrapper
+
+if [[ ! -x "${WRAPPER_SOURCE}" ]]; then
+    echo "Error: missing ${WRAPPER_SOURCE}" >&2
+    exit 1
+fi
+
+sudo mkdir -p "${POLICY_DIR}"
+sudo install -m 755 "${WRAPPER_SOURCE}" "${POLICY_DIR}/rapids-command-wrapper"
+
+for command in build-cudf-cpp configure-cudf-cpp; do
+    sudo ln -sfn "${POLICY_DIR}/rapids-command-wrapper" "/usr/bin/${command}"
+    sudo ln -sfn rapids-command-wrapper "${POLICY_DIR}/${command}"
+done

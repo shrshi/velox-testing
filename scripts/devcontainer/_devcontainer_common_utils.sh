@@ -12,6 +12,35 @@ resolve_cudaarchs() {
     fi
 }
 
+resolve_velox_root() {
+    local candidate
+    candidate=$(git -C "${PWD}" rev-parse --show-toplevel 2>/dev/null || true)
+    if [[ -f "${candidate}/CMakeLists.txt" && -d "${candidate}/velox" ]]; then
+        printf '%s\n' "${candidate}"
+    else
+        printf '%s\n' "${HOME}/velox"
+    fi
+}
+
+configure_velox_sccache_basedirs() {
+    local repository="${1:-${VELOX_ROOT:-$(resolve_velox_root)}}"
+    local worktree_list
+    worktree_list=$(git -C "${repository}" worktree list --porcelain) || return 1
+    local worktree
+    local -a worktrees=()
+
+    while IFS= read -r worktree; do
+        worktrees+=("${worktree}")
+    done < <(printf '%s\n' "${worktree_list}" | sed -n 's/^worktree //p')
+    if [[ ${#worktrees[@]} -eq 0 ]]; then
+        echo "Error: no Velox worktree roots found for sccache" >&2
+        return 1
+    fi
+
+    local IFS=:
+    export SCCACHE_BASEDIRS="${worktrees[*]}"
+}
+
 select_sccache_family() {
     local family="$1"
 
@@ -28,6 +57,10 @@ select_sccache_family() {
 
     export SCCACHE_DIR="/tmp/sccache/${family}"
     mkdir -p "${SCCACHE_DIR}"
+
+    if [[ "${family}" == "velox" ]]; then
+        configure_velox_sccache_basedirs || return 1
+    fi
 
     export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
     export SCCACHE_DIST_MAX_RETRIES="${SCCACHE_DIST_MAX_RETRIES:-4}"
@@ -51,8 +84,35 @@ require_remote_sccache() {
         return 1
     }
 
-    if ! sccache --show-stats >/dev/null 2>&1; then
+    if sccache --show-stats >/dev/null 2>&1 && [[ -n "${SCCACHE_BASEDIRS:-}" ]]; then
+        local current_basedirs
+        current_basedirs=$(
+            sccache --show-adv-stats --stats-format json |
+                jq -r '.basedirs | map(sub("/$"; "")) | join(":")'
+        )
+        if [[ "${current_basedirs}" != "${SCCACHE_BASEDIRS}" ]]; then
+            if [[ "$(sccache --show-adv-stats --stats-format json | jq -r '.stats.active_compilations')" != 0 ]]; then
+                echo "Error: cannot update sccache base directories during an active Velox build" >&2
+                return 1
+            fi
+            sccache --stop-server >/dev/null
+            sccache --start-server >/dev/null
+        fi
+    elif ! sccache --show-stats >/dev/null 2>&1; then
         sccache --start-server >/dev/null
+    fi
+    if [[ "${SCCACHE_SERVER_PORT}" == 4228 ]]; then
+        local reported_basedirs
+        reported_basedirs=$(
+            sccache --show-adv-stats --stats-format json |
+                jq -r '.basedirs | map(sub("/$"; "")) | join(":")'
+        ) || return 1
+        if [[ -z "${SCCACHE_BASEDIRS:-}" ||
+              "${reported_basedirs}" != "${SCCACHE_BASEDIRS}" ]]; then
+            echo "Error: Velox sccache server base directories do not match registered worktrees" >&2
+            return 1
+        fi
+        echo "Velox sccache base directories: ${reported_basedirs}"
     fi
     sccache --dist-auth >/dev/null
 

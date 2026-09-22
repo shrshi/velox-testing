@@ -27,6 +27,18 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -j|--jobs|--parallel) NUM_THREADS="$2"; shift 2 ;;
         -j*) NUM_THREADS="${1#-j}"; shift ;;
+        -D)
+            case "$2" in
+                BUILD_TESTS=*|BUILD_BENCHMARKS=*|CMAKE_CUDA_ARCHITECTURES=*|\
+                CMAKE_C_COMPILER_LAUNCHER=*|CMAKE_CXX_COMPILER_LAUNCHER=*|\
+                CMAKE_CUDA_COMPILER_LAUNCHER=*)
+                    echo "Error: -D$2 is controlled by build-libcudf-cpp" >&2
+                    exit 1
+                    ;;
+            esac
+            CMAKE_ARGS+=("-D$2")
+            shift 2
+            ;;
         -DBUILD_TESTS=*|-DBUILD_BENCHMARKS=*|-DCMAKE_CUDA_ARCHITECTURES=*|\
         -DCMAKE_C_COMPILER_LAUNCHER=*|-DCMAKE_CXX_COMPILER_LAUNCHER=*|\
         -DCMAKE_CUDA_COMPILER_LAUNCHER=*)
@@ -93,14 +105,7 @@ run_remote_with_retry() {
 }
 
 if [[ "${needs_configure}" == true ]]; then
-    run_remote_with_retry cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
-        -DBUILD_TESTS=ON \
-        -DBUILD_BENCHMARKS=ON \
-        -DCMAKE_CUDA_ARCHITECTURES=native \
-        -DCMAKE_C_COMPILER_LAUNCHER=sccache \
-        -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
-        -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache \
-        "${CMAKE_ARGS[@]}"
+    configure-libcudf-cpp "${CMAKE_ARGS[@]}"
 fi
 
 run_remote_with_retry cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}"

@@ -55,13 +55,17 @@ All repos are bind-mounted into the container under `/home/coder/`.
 
 ## Build Architecture
 
-`build-velox` builds the Velox-cuDF targets in `~/velox` as a standalone tree:
+`build-velox` builds the Velox-cuDF targets from the current Velox worktree,
+or from `~/velox` when invoked elsewhere:
 
 ```
-source: ~/velox
-build:  /opt/velox-build/<release|debug>
+source: <current Velox worktree>
+build:  <current Velox worktree>/build/<release|debug>
 mode:   VELOX_MONO_LIBRARY=OFF, VELOX_BUILD_SHARED=OFF
 ```
+
+For the primary checkout, `/opt/velox-build` is a bind mount of `~/velox/build`,
+so both paths refer to the same build tree.
 
 `build-presto` builds Presto and Velox together:
 
@@ -82,13 +86,14 @@ The Presto build consumes **cudf**, **rmm**, **ucxx**, and **kvikio** built from
 
 `build-presto` does not require `build-velox` to run first. It copies `~/velox` into `~/presto/presto-native-execution/velox` with `rsync`, then Presto's CMake build compiles Velox through `add_subdirectory(velox)`.
 
-Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the standalone `/opt/velox-build` build, then again inside the Presto build tree under `/opt/presto-build`.
+Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the standalone `~/velox/build` tree, then again inside the Presto build tree under `/opt/presto-build`.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `build-libcudf-cpp` | Build libcudf, tests, and benchmarks without installing |
+| `configure-libcudf-cpp` | Configure libcudf tests and benchmarks for remote native-architecture compilation |
+| `build-libcudf-cpp` | Incrementally build libcudf, tests, and benchmarks without installing |
 | `build-velox` | Build Velox-cuDF libraries and tests (fully self-contained) |
 | `build-presto` | Build Presto (auto-builds FB deps on first run) |
 | `configure-all` | Configure all build trees |
@@ -106,6 +111,7 @@ Velox builds twice only when you run `build-all` or `build-all-cpp`: once as the
 All commands accept `--help`. Common options:
 
 ```bash
+configure-libcudf-cpp          # configure without building or installing
 build-libcudf-cpp              # 32-job native-architecture libcudf build
 build-velox                    # 32-job Velox-cuDF library and test build
 build-velox --debug            # debug Velox-cuDF build
@@ -132,10 +138,10 @@ environments (CI does not set them, so hooks assume a vanilla shell):
 - `PYTHONSAFEPATH=1`: Python stops adding the script's directory to `sys.path`,
   breaking Velox's `run-clang-tidy.py` (`ModuleNotFoundError: No module named 'util'`).
 
-The wrapper also defaults `BUILD_PATH` to `/opt/velox-build/release` so the
-`clang-tidy` hook finds `compile_commands.json` (it is silently skipped
-otherwise); override `BUILD_PATH` if you are validating against a different
-build tree.
+The wrapper defaults `BUILD_PATH` to `/opt/velox-build/release` for the primary
+checkout so the `clang-tidy` hook finds `compile_commands.json` (it is silently
+skipped otherwise). Set `BUILD_PATH=<worktree>/build/release` when validating a
+linked worktree.
 
 ## CUDA Variants
 
@@ -156,15 +162,46 @@ Builds require sccache-dist and disable fallback to local compilation. Each buil
 
 This isolation allows a failed build to restart its own client daemon and retry without interrupting another build family. Do not run concurrent builds within one family because they share statistics used to verify that compilation remained remote.
 
+The Velox client normalizes all registered Git worktree roots using
+`SCCACHE_BASEDIRS`. Because every worktree uses the same relative `build/`
+layout, unchanged source and bundled-dependency compilations can share remote
+cache entries across worktrees. The client restarts automatically before a
+build when the registered worktree set changes; it refuses to do so while a
+Velox compilation is active. Setup verifies and prints the server's actual base
+directories before proceeding.
+
+For direct `cmake --build` commands, initialize the same environment in the
+shell that launches compilation, including inside a detached `bash -c`:
+
+```bash
+source /usr/local/bin/_devcontainer_common_utils.sh
+select_sccache_family velox
+require_remote_sccache
+sccache --zero-stats
+cmake --build "$PWD/build/release" \
+  --target velox/experimental/cudf/tests/all --parallel 32
+```
+
+Running `configure-velox` first does not initialize its parent shell: its
+exported settings only reach its own children. A bare build from that parent
+can use a different daemon without path normalization. Remote compilation
+alone does not establish cross-worktree cache reuse; check the selected
+server's base directories and cache-hit statistics. Source content and
+compiler flags must also match for reuse.
+
+The devcontainer overrides `/usr/bin/build-cudf-cpp` and `/usr/bin/configure-cudf-cpp` with policy wrappers. Calls from RAPIDS `build-all`, `build-all-cpp`, and `configure-all` resolve those wrappers through a policy directory prepended to `PATH`. Consequently every libcudf entry point enforces native CUDA architecture, tests and benchmarks, the bundled nvCOMP selected by the libcudf build, remote-only sccache, at most 32 jobs, incremental builds when the cache is compatible, and no CMake install target.
+
 ## Build Outputs
 
 | Build | Location | Contents |
 |-------|----------|----------|
 | FB deps | `/opt/fb-deps/` | folly, fbthrift, proxygen (auto-built by `build-presto`) |
-| Velox | `/opt/velox-build/release/` | Velox-cuDF libraries and tests plus required libraries |
+| Velox | `<worktree>/build/release/` (`/opt/velox-build/release/` for `~/velox`) | Velox-cuDF libraries and tests plus required libraries |
 | Presto | `/opt/presto-build/` | `presto_server` binary, tests |
 
-Build directories are under `/opt/` so they don't pollute mounted source trees and persist across container sessions (unless the container is recreated).
+The primary Velox build is mounted at both `~/velox/build` and
+`/opt/velox-build`. Linked worktree builds live under each worktree's ignored
+`build/` directory. These host-mounted paths persist across container sessions.
 
 ## Dependency Resolution
 

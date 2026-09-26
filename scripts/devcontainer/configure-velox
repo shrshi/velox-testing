@@ -151,7 +151,10 @@ printf -v EXTRA_CMAKE_FLAGS ' %q' "${CMAKE_FLAGS[@]}"
 configure_once() {
     sccache --zero-stats
     local configure_rc=0
-    make cmake BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
+    # Prevent the base image's BASH_ENV from resetting the selected sccache
+    # family inside Make recipe shells.
+    BASH_ENV=/dev/null make cmake \
+        BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
         EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS# }" \
         BUILD_BASE_DIR="${BUILD_BASE_DIR}" || configure_rc=$?
     if ! validate_remote_sccache_stats; then

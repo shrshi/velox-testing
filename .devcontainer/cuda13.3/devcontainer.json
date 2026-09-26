@@ -32,7 +32,7 @@
     "source=${localWorkspaceFolder}/../velox-review-worktrees,target=/home/coder/velox-review-worktrees,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/build,target=/opt/velox-build,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox/fb-deps,target=/opt/fb-deps,type=bind,consistency=consistent",
-    "source=${localWorkspaceFolder}/../.agents,target=/home/coder/.agents,type=bind,consistency=consistent",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/dotfiles/.agents,target=/home/coder/.agents,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.aws,target=/home/coder/.aws,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cache,target=/home/coder/.cache,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../.cargo,target=/home/coder/.cargo,type=bind,consistency=consistent",

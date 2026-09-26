@@ -8,6 +8,7 @@ host_home="${2:?host home path is required}"
 cuda_version="${3:?CUDA version is required}"
 
 mkdir -p \
+    "${host_home}/dotfiles/.agents" \
     "${workspace_parent}/.aws" \
     "${workspace_parent}/.cache" \
     "${workspace_parent}/.cargo" \

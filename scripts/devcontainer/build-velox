@@ -8,7 +8,7 @@ source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 select_sccache_family velox
 
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${VELOX_BUILD_JOBS:-32}"
+NUM_THREADS="${BUILD_JOBS}"
 VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
@@ -27,14 +27,13 @@ benchmarks remain disabled unless explicitly enabled.
 Options:
   --release         Build release mode (default)
   --debug           Build debug mode
-  -j, --jobs N      Number of parallel jobs (default: 32)
+  -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env)
   --cuda-arch ARCH  CUDA architecture (default: native)
   --local-rapids    Use build outputs from sibling cuDF/RMM/RAPIDS checkouts
   --benchmarks      Build Velox-cuDF benchmarks
   -h, --help        Show this help message
 
 Environment variables:
-  VELOX_BUILD_JOBS  Number of parallel build jobs (default: 32)
   VELOX_ROOT        Velox source root (default: current Velox worktree or ~/velox)
   BUILD_BASE_DIR    Build root (default: <Velox source>/build)
 EOF
@@ -60,9 +59,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] ||
-   (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
-    echo "Error: build jobs must be between 1 and 32" >&2
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: build jobs must be a positive integer" >&2
     exit 1
 fi
 

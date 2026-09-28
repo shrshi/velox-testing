@@ -4,10 +4,13 @@
 
 set -euo pipefail
 
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
-NUM_THREADS="${NUM_THREADS:-2}"
+NUM_THREADS="${NUM_THREADS:-${PRESTO_TEST_JOBS}}"
 
 usage() {
     cat <<EOF
@@ -16,7 +19,7 @@ Usage: test-presto [OPTIONS]
 Run presto-native-execution tests.
 
 Options:
-  -j, --jobs N        Number of parallel test jobs (default: 2)
+  -j, --jobs N        Number of parallel test jobs (default: PRESTO_TEST_JOBS from config.env)
   --filter PATTERN    Only run tests matching pattern (ctest -R)
   --exclude PATTERN   Exclude tests matching pattern (ctest -E)
   --list              List available tests without running
@@ -52,8 +55,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${NUM_THREADS}" == "0" ]]; then
-    NUM_THREADS="$(nproc --all)"
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: test jobs must be a positive integer" >&2
+    exit 1
 fi
 
 # Presto builds flat (no release/debug subdirectory)

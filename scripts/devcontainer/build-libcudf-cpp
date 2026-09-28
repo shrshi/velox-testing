@@ -6,7 +6,7 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
 select_sccache_family rapids
 
-NUM_THREADS=32
+NUM_THREADS="${BUILD_JOBS}"
 CMAKE_ARGS=()
 
 usage() {
@@ -17,7 +17,7 @@ Build libcudf, tests, and benchmarks without installing them. Existing compatibl
 build trees are built incrementally without explicit reconfiguration.
 
 Options:
-  -j, --jobs N      Number of parallel jobs (default: 32, maximum: 32)
+  -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env)
   -D<VAR>=<VALUE>   Additional CMake cache entry
   -h, --help        Show this help message
 EOF
@@ -51,9 +51,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] ||
-   (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
-    echo "Error: build jobs must be between 1 and 32" >&2
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: build jobs must be a positive integer" >&2
     exit 1
 fi
 

@@ -102,15 +102,10 @@ ENV DEVCONTAINER_UTILS_ENABLE_SCCACHE_DIST=1
 # Fail the build if distributed compilation is unavailable
 ENV SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
 # Retry transient errors 4 times (for a total of 5 attempts)
-ENV SCCACHE_DIST_MAX_RETRIES=4
-# 1hr 59min (to accommodate debug builds)
-ENV SCCACHE_DIST_REQUEST_TIMEOUT=7140
 ENV SCCACHE_DIST_URL="https://${TARGETARCH}.linux.sccache.rapids.nvidia.com"
 
-# Build only for the local GPU and cap local orchestration parallelism.
-ENV INFER_NUM_DEVICE_ARCHITECTURES=1 \
-    MAX_DEVICE_OBJ_TO_COMPILE_IN_PARALLEL=4 \
-    NUM_THREADS=4
+# Build only for the local GPU. Resource limits are set in .devcontainer/config.env.
+ENV INFER_NUM_DEVICE_ARCHITECTURES=1
 
 # Add velox environment to bashrc
 RUN echo "export CUDA_VERSION=${CUDA_VERSION}" >> /home/coder/.bashrc && \

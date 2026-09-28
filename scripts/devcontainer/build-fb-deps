@@ -8,8 +8,7 @@ select_sccache_family fb-deps
 
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
 VELOX_ROOT="${VELOX_ROOT:-${HOME}/velox}"
-NUM_THREADS="${NUM_THREADS:-4}"
-RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
+NUM_THREADS="${NUM_THREADS:-${BUILD_JOBS}}"
 REBUILD_DEPS=false
 
 usage() {
@@ -19,7 +18,7 @@ Usage: build-fb-deps [OPTIONS]
 Build Facebook OSS dependencies into FB_DEPS_PREFIX.
 
 Options:
-  -j, --jobs N      Number of parallel jobs (default: 4, maximum: 4).
+  -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env).
   --prefix PATH     Install prefix (default: /opt/fb-deps)
   --rebuild         Force rebuild even if dependencies are already installed
   -h, --help        Show this help message
@@ -35,12 +34,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -j|--jobs)
             NUM_THREADS="$2"
-            RAPIDS_BUILD_ARGS=("$1" "$2")
             shift 2
             ;;
         -j*)
             NUM_THREADS="${1#-j}"
-            RAPIDS_BUILD_ARGS=("$1")
             shift
             ;;
         --prefix)
@@ -53,10 +50,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-eval "$(PARALLEL_LEVEL=4 rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
-NUM_THREADS="${n_jobs}"
-if (( NUM_THREADS < 1 || NUM_THREADS > 4 )); then
-    echo "Error: build jobs must be between 1 and 4" >&2
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: build jobs must be a positive integer" >&2
     exit 1
 fi
 if [[ "${REBUILD_DEPS}" != true ]] && \

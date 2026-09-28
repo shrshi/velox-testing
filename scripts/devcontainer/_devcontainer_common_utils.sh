@@ -5,6 +5,27 @@
 # Shared constants and functions for velox/presto build scripts.
 # Source this file; do not execute directly.
 
+DEVCONTAINER_CONFIG="${HOME}/velox-testing/.devcontainer/config.env"
+if [[ ! -f "${DEVCONTAINER_CONFIG}" ]]; then
+    echo "Error: devcontainer config not found: ${DEVCONTAINER_CONFIG}" >&2
+    return 1
+fi
+# shellcheck source=/dev/null
+source "${DEVCONTAINER_CONFIG}"
+
+for setting in BUILD_JOBS VELOX_TEST_JOBS PRESTO_TEST_JOBS CUDA_COMPILE_JOBS \
+    MAX_LINK_JOBS MAX_HIGH_MEM_JOBS SCCACHE_DIST_MAX_RETRIES \
+    SCCACHE_DIST_REQUEST_TIMEOUT; do
+    if ! [[ "${!setting:-}" =~ ^[0-9]+$ ]] || (( ${!setting} < 1 )); then
+        echo "Error: ${setting} must be a positive integer: ${!setting:-<unset>}" >&2
+        return 1
+    fi
+done
+
+export MAX_DEVICE_OBJ_TO_COMPILE_IN_PARALLEL="${CUDA_COMPILE_JOBS}"
+export MAX_LINK_JOBS MAX_HIGH_MEM_JOBS
+export SCCACHE_DIST_MAX_RETRIES SCCACHE_DIST_REQUEST_TIMEOUT
+
 # Resolve CUDAARCHS to the architecture of the GPU visible in this container.
 resolve_cudaarchs() {
     if [[ -z "${CUDAARCHS:-}" || "${CUDAARCHS}" == "native" ]]; then
@@ -63,7 +84,7 @@ select_sccache_family() {
     fi
 
     export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
-    export SCCACHE_DIST_MAX_RETRIES="${SCCACHE_DIST_MAX_RETRIES:-4}"
+    export SCCACHE_DIST_MAX_RETRIES
     unset SCCACHE_NO_DIST_COMPILE
     export CMAKE_C_COMPILER_LAUNCHER=sccache
     export CMAKE_CXX_COMPILER_LAUNCHER=sccache

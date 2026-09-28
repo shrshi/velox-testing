@@ -9,10 +9,9 @@ select_sccache_family presto
 
 # Defaults
 BUILD_TYPE="${BUILD_TYPE:-release}"
-NUM_THREADS="${NUM_THREADS:-0}"
+NUM_THREADS="${NUM_THREADS:-${BUILD_JOBS}}"
 BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
 FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
-RAPIDS_BUILD_ARGS=("-j${NUM_THREADS}")
 
 usage() {
     cat <<EOF
@@ -25,8 +24,7 @@ on first run.
 Options:
   --release         Build in release mode (default)
   --debug           Build in debug mode
-  -j, --jobs N      Number of parallel jobs. Defaults to -j0, sized like
-                    RAPIDS build scripts for sccache-dist.
+  -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env).
   --rebuild-deps    Force rebuild of Facebook OSS dependencies
   -h, --help        Show this help message
 
@@ -47,12 +45,10 @@ while [[ $# -gt 0 ]]; do
         --debug) BUILD_TYPE="debug"; shift ;;
         -j|--jobs)
             NUM_THREADS="$2"
-            RAPIDS_BUILD_ARGS=("$1" "$2")
             shift 2
             ;;
         -j*)
             NUM_THREADS="${1#-j}"
-            RAPIDS_BUILD_ARGS=("$1")
             shift
             ;;
         --rebuild-deps) REBUILD_DEPS=true; shift ;;
@@ -61,12 +57,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# RAPIDS build-utils emits shell assignments for n_jobs and n_load.
-eval "$(PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc --all)} rapids-get-num-archs-jobs-and-load "${RAPIDS_BUILD_ARGS[@]}" 2>/dev/null)"
-NUM_THREADS="${n_jobs}"
-LOAD_LIMIT="${n_load}"
-if (( NUM_THREADS < 1 || NUM_THREADS > 32 )); then
-    echo "Error: build jobs must be between 1 and 32" >&2
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: build jobs must be a positive integer" >&2
     exit 1
 fi
 
@@ -104,7 +96,6 @@ echo ""
 echo -e "\033[1;36mBuilding Presto Native Execution\033[0m"
 echo "Build type:  ${BUILD_TYPE}"
 echo "Threads:     ${NUM_THREADS}"
-echo "Load limit:  ${LOAD_LIMIT}"
 echo "CUDA archs:  ${CUDAARCHS}"
 echo "Build dir:   ${BUILD_BASE_DIR}"
 echo ""
@@ -163,7 +154,7 @@ eval "cmake -B \"${BUILD_BASE_DIR}\" \
 build_once() {
     sccache --zero-stats
     local build_rc=0
-    ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" -l "${LOAD_LIMIT}" || build_rc=$?
+    ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" || build_rc=$?
     if ! validate_remote_sccache_stats; then
         return 75
     fi

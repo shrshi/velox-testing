@@ -105,13 +105,18 @@ require_remote_sccache() {
         return 1
     }
 
+    # Git and sccache may report the same base directories in different orders.
+    local expected_basedirs
+    expected_basedirs=$(jq -nr --arg dirs "${SCCACHE_BASEDIRS:-}" \
+        '$dirs | split(":") | map(sub("/+$"; "")) | unique | join(":")') || return 1
+
     if sccache --show-stats >/dev/null 2>&1 && [[ -n "${SCCACHE_BASEDIRS:-}" ]]; then
         local current_basedirs
         current_basedirs=$(
             sccache --show-adv-stats --stats-format json |
-                jq -r '.basedirs | map(sub("/$"; "")) | join(":")'
+                jq -r '.basedirs | map(sub("/+$"; "")) | unique | join(":")'
         )
-        if [[ "${current_basedirs}" != "${SCCACHE_BASEDIRS}" ]]; then
+        if [[ "${current_basedirs}" != "${expected_basedirs}" ]]; then
             if [[ "$(sccache --show-adv-stats --stats-format json | jq -r '.stats.active_compilations')" != 0 ]]; then
                 echo "Error: cannot update sccache base directories during an active Velox build" >&2
                 return 1
@@ -126,10 +131,10 @@ require_remote_sccache() {
         local reported_basedirs
         reported_basedirs=$(
             sccache --show-adv-stats --stats-format json |
-                jq -r '.basedirs | map(sub("/$"; "")) | join(":")'
+                jq -r '.basedirs | map(sub("/+$"; "")) | unique | join(":")'
         ) || return 1
         if [[ -z "${SCCACHE_BASEDIRS:-}" ||
-              "${reported_basedirs}" != "${SCCACHE_BASEDIRS}" ]]; then
+              "${reported_basedirs}" != "${expected_basedirs}" ]]; then
             echo "Error: Velox sccache server base directories do not match registered worktrees" >&2
             return 1
         fi

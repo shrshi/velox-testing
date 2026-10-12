@@ -21,6 +21,29 @@ Ensure you have the following directory structure:
 
 All three repositories must be checked out as sibling directories. **Important:** Please use compatible commit hashes/branches across these repositories. There is no formal public matrix yet—refer to release notes, this README, and instructions in the dependent repositories for guidance.
 
+## WXD-launch fork
+
+This branch combines the WXD launch tooling with the development container from
+`shrshi/velox-testing:devcontainer-setup`, decimal TPC-H schemas, and benchmark
+result validation. Use the matching `WXD-launch` branches in `shrshi/presto` and
+`shrshi/velox`; Velox pins the terminal-finalization backport in `shrshi/cudf`.
+
+The WXD dev launchers accept `--presto-source` and `--velox-source` (or
+`PRESTO_DEV_PRESTO_SOURCE` and `PRESTO_DEV_VELOX_SOURCE`). They do **not** use the
+`VELOX_SOURCE_DIR` override from `devcontainer-setup`. Alternate sources must be
+inside the Docker build context, the parent of the `velox-testing` checkout.
+The devcontainer also retains its existing sibling-repository layout; a linked
+worktree elsewhere is not a drop-in replacement for that layout.
+
+TPC-H generation and schemas retain decimals by default. Existing tables/data
+created with DOUBLE columns are not converted automatically.
+
+Use `run_benchmark.sh --reference-results-dir /path/to/reference_results` for
+automatic validation and `validation_results.json`. The WXD
+`run_benchmark_dev.sh` is unchanged and does not run that validator automatically.
+WXD's `--cold` and `--cold-every-iteration` options remain unchanged; the newer
+`--cache-mode` and distributed CTAS workflow are not included in this port.
+
 ## Current Testing Status
 
 **TPC-H** is the primary benchmark suite currently used for testing Presto GPU functionality. The infrastructure supports comprehensive testing including:

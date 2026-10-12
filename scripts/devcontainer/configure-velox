@@ -1,0 +1,176 @@
+#!/bin/bash
+# Configure Velox without building.
+# Usage: configure-velox [--release|--debug] [--local-rapids] [-D<VAR>=<VALUE>]...
+
+set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family velox
+
+BUILD_TYPE="${BUILD_TYPE:-release}"
+VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+CUDAARCHS="${CUDAARCHS:-native}"
+USE_LOCAL_RAPIDS=false
+ENABLE_BENCHMARKS=false
+
+usage() {
+    cat <<EOF
+Usage: configure-velox [OPTIONS] [-D<VAR>=<VALUE>]...
+
+Configure Velox without building.
+
+Options:
+  --release         Configure a release build (default)
+  --debug           Configure a debug build
+  --local-rapids    Use build outputs from sibling cuDF/RMM/RAPIDS checkouts
+  --benchmarks      Configure benchmarks
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  VELOX_ROOT        Velox source root (default: current Velox worktree or ~/velox)
+  BUILD_BASE_DIR    Build root (default: <Velox source>/build)
+  FB_DEPS_PREFIX    Facebook dependency prefix (default: /opt/fb-deps)
+  CUDAARCHS         Must be native
+EOF
+}
+
+CMAKE_PASSTHROUGH=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        --cuda-arch)
+            [[ "$2" == "native" ]] || {
+                echo "Error: only the local CUDA architecture is supported" >&2
+                exit 1
+            }
+            shift 2
+            ;;
+        --local-rapids) USE_LOCAL_RAPIDS=true; shift ;;
+        --benchmarks) ENABLE_BENCHMARKS=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        -DVELOX_ENABLE_BENCHMARKS=ON)
+            ENABLE_BENCHMARKS=true
+            shift
+            ;;
+        -DCMAKE_C_COMPILER_LAUNCHER=*|-DCMAKE_CXX_COMPILER_LAUNCHER=*|\
+        -DCMAKE_CUDA_COMPILER_LAUNCHER=*|-DCMAKE_CUDA_ARCHITECTURES=*|\
+        -Dcudf_SOURCE=*|-Dcudf_ROOT=*|-Drmm_ROOT=*|-Dkvikio_ROOT=*|\
+        -Ducxx_ROOT=*|-Drapidsmpf_ROOT=*|-DVELOX_BUILD_TESTING=*|\
+        -DVELOX_BUILD_MINIMAL=*|-DVELOX_ENABLE_BENCHMARKS_BASIC=*|\
+        -DVELOX_ENABLE_GEO=*)
+            echo "Error: $1 is controlled by configure-velox" >&2
+            exit 1
+            ;;
+        -D*) CMAKE_PASSTHROUGH+=("$1"); shift ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+if [[ ! -d "${VELOX_DIR}" ]]; then
+    echo "Error: Velox repository not found at ${VELOX_DIR}" >&2
+    exit 1
+fi
+
+[[ "${CUDAARCHS}" == "native" ]] || {
+    echo "Error: CUDAARCHS must be native" >&2
+    exit 1
+}
+require_remote_sccache
+sccache --zero-stats
+resolve_cudaarchs
+
+CMAKE_FLAGS=(
+    -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+    -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow
+    -DCMAKE_C_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache
+    "-DCMAKE_CUDA_ARCHITECTURES=${CUDAARCHS}"
+    -DVELOX_ENABLE_CUDF=ON
+    -DVELOX_ENABLE_ARROW=ON
+    -DVELOX_ENABLE_PARQUET=ON
+    -DVELOX_ENABLE_GEO=OFF
+    -DVELOX_MONO_LIBRARY=OFF
+    -DVELOX_BUILD_SHARED=OFF
+    -DVELOX_BUILD_MINIMAL=OFF
+    -DVELOX_BUILD_TESTING=ON
+    "-DMAX_LINK_JOBS=${MAX_LINK_JOBS}"
+    "-DMAX_HIGH_MEM_JOBS=${MAX_HIGH_MEM_JOBS}"
+    "-DVELOX_ENABLE_BENCHMARKS=$([[ "${ENABLE_BENCHMARKS}" == true ]] && echo ON || echo OFF)"
+    "-DVELOX_ENABLE_BENCHMARKS_BASIC=$([[ "${ENABLE_BENCHMARKS}" == true ]] && echo ON || echo OFF)"
+    "-DCMAKE_PREFIX_PATH=${FB_DEPS_PREFIX}"
+    -Dfolly_SOURCE=SYSTEM
+    -Dxsimd_SOURCE=BUNDLED
+    -DGTest_SOURCE=BUNDLED
+    -DDuckDB_SOURCE=BUNDLED
+    -Dfaiss_SOURCE=BUNDLED
+    -Dsimdjson_SOURCE=BUNDLED
+    -DFastFloat_SOURCE=BUNDLED
+    -Dabsl_SOURCE=BUNDLED
+    -DgRPC_SOURCE=BUNDLED
+    -DArrow_SOURCE=BUNDLED
+)
+
+if [[ "${USE_LOCAL_RAPIDS}" == true ]]; then
+    CUDF_BUILD_DIR=$(get_rapids_cmake_dir "cudf")
+    if [[ -z "${CUDF_BUILD_DIR}" ]]; then
+        echo "Error: --local-rapids requested, but no local cuDF build was found" >&2
+        exit 1
+    fi
+    CMAKE_FLAGS+=("-Dcudf_SOURCE=SYSTEM")
+    RAPIDS_FLAGS=""
+    append_rapids_cmake_flags RAPIDS_FLAGS
+    # shellcheck disable=SC2206
+    CMAKE_FLAGS+=(${RAPIDS_FLAGS})
+else
+    CMAKE_FLAGS+=(
+        -Dcudf_SOURCE=BUNDLED
+        -Dcudf_ROOT=
+        -Drmm_ROOT=
+        -Dkvikio_ROOT=
+        -Ducxx_ROOT=
+        -Drapidsmpf_ROOT=
+        -DCPM_DOWNLOAD_ALL=ON
+        -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER
+    )
+fi
+
+CMAKE_FLAGS+=("${CMAKE_PASSTHROUGH[@]}")
+
+cd "${VELOX_DIR}"
+echo -e "\033[1;36mConfiguring Velox\033[0m"
+echo "Source dir:  ${VELOX_DIR}"
+echo "Build type:  ${BUILD_TYPE}"
+echo "CUDA archs:  ${CUDAARCHS}"
+echo "Build dir:   ${BUILD_BASE_DIR}/${BUILD_TYPE}"
+echo "RAPIDS:      $([[ "${USE_LOCAL_RAPIDS}" == true ]] && echo local || echo bundled)"
+
+printf -v EXTRA_CMAKE_FLAGS ' %q' "${CMAKE_FLAGS[@]}"
+configure_once() {
+    sccache --zero-stats
+    local configure_rc=0
+    # Prevent the base image's BASH_ENV from resetting the selected sccache
+    # family inside Make recipe shells.
+    BASH_ENV=/dev/null make cmake \
+        BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
+        EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS# }" \
+        BUILD_BASE_DIR="${BUILD_BASE_DIR}" || configure_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${configure_rc}"
+}
+
+configure_rc=0
+configure_once || configure_rc=$?
+if [[ "${configure_rc}" == 75 ]]; then
+    echo "Remote configuration compile failed; restarting sccache and retrying once" >&2
+    restart_remote_sccache
+    configure_once
+else
+    exit "${configure_rc}"
+fi

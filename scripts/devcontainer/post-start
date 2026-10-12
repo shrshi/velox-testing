@@ -1,0 +1,132 @@
+#!/bin/bash
+# Configure SSH access and developer tooling on every container start.
+
+set -euo pipefail
+
+HOST_AUTHORIZED_KEYS="${HOME}/.config/velox-testing-authorized_keys"
+DOTFILES_DIR="${HOME}/dotfiles"
+
+mkdir -p "${HOME}/.ssh"
+chmod 700 "${HOME}/.ssh"
+touch "${HOME}/.ssh/authorized_keys"
+chmod 600 "${HOME}/.ssh/authorized_keys"
+
+if [[ -s "${HOST_AUTHORIZED_KEYS}" ]]; then
+    while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        grep -qxF "${key}" "${HOME}/.ssh/authorized_keys" || echo "${key}" >> "${HOME}/.ssh/authorized_keys"
+    done < "${HOST_AUTHORIZED_KEYS}"
+fi
+
+# Link editor and agent configuration from the host dotfiles mount.
+if [[ -d "${DOTFILES_DIR}" ]]; then
+    mkdir -p "${HOME}/.config/nvim" "${HOME}/.pi"
+    ln -sfn ../../dotfiles/init.lua "${HOME}/.config/nvim/init.lua"
+    ln -sfn ../../dotfiles/lua "${HOME}/.config/nvim/lua"
+    ln -sfn "${DOTFILES_DIR}/.opencode" "${HOME}/.opencode"
+    ln -sfn "${DOTFILES_DIR}/.pi/agent" "${HOME}/.pi/agent"
+else
+    echo "Dotfiles mount not found: ${DOTFILES_DIR}" >&2
+    exit 1
+fi
+
+# Expose the Nsight Systems agent skill through Pi's skill directory.
+NSIGHT_SYSTEMS_SKILL="$(dirname "$(dirname "$(readlink -f "$(command -v nsys)")")")/skills/nsight-systems"
+ln -sfn "${NSIGHT_SYSTEMS_SKILL}" "${HOME}/.pi/agent/skills/nsight-systems"
+
+# Import the public signing key. The corresponding private key remains on the
+# host and signing requests are handled through the mounted gpg-agent socket.
+GPG_PUBLIC_KEY=/run/host-services/git-signing-public-key.asc
+if [[ ! -f "${GPG_PUBLIC_KEY}" ]]; then
+    echo "GPG public key mount not found: ${GPG_PUBLIC_KEY}" >&2
+    exit 1
+fi
+mkdir -p "${HOME}/.gnupg"
+chmod 700 "${HOME}/.gnupg"
+gpg --batch --import "${GPG_PUBLIC_KEY}"
+GPG_SIGNING_KEY="$(gpg --batch --with-colons --import-options show-only --import "${GPG_PUBLIC_KEY}" | awk -F: '$1 == "fpr" { print $10; exit }')"
+if [[ -z "${GPG_SIGNING_KEY}" ]]; then
+    echo "Could not determine the GPG signing key fingerprint" >&2
+    exit 1
+fi
+
+# The agent socket permits Git-over-SSH without exposing private key files.
+if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
+    echo "SSH agent forwarding is available."
+else
+    echo "Warning: SSH agent socket is unavailable; Git SSH authentication may fail." >&2
+fi
+
+# Git config (idempotent).
+git config --global user.name "Shruti Shivakumar"
+git config --global user.email "shruti.shivakumar@gmail.com"
+git config --global user.signingkey "${GPG_SIGNING_KEY}"
+git config --global gpg.format openpgp
+git config --global --unset-all gpg.ssh.allowedSignersFile 2>/dev/null || true
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+git config --global merge.gpgsign true
+git config --global core.editor nvim
+git config --global --add safe.directory /home/coder/velox-testing
+
+# Bash completion (idempotent).
+if ! grep -q "/etc/bash_completion" "${HOME}/.bashrc"; then
+    cat >> "${HOME}/.bashrc" <<'EOF'
+if [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+fi
+EOF
+fi
+
+# Configure the mounted encrypted inference token, if it has not been set up.
+ENCRYPTED_TOKEN_FILE="${HOME}/.inference-nvidia.key.gpg"
+TOKEN_ENV_VAR_NAME="SHRSHI_NVINFERENCE_APIKEY"
+if [[ -f "${ENCRYPTED_TOKEN_FILE}" ]] && ! grep -q "export ${TOKEN_ENV_VAR_NAME}" "${HOME}/.bashrc"; then
+    read -r -s -p "Enter GPG passphrase for ${TOKEN_ENV_VAR_NAME}: " GPG_PASSPHRASE
+    echo
+    TOKEN="$(gpg --quiet --batch --passphrase "${GPG_PASSPHRASE}" --decrypt "${ENCRYPTED_TOKEN_FILE}" 2>/dev/null || true)"
+    unset GPG_PASSPHRASE
+    if [[ -n "${TOKEN}" ]]; then
+        echo "# Auth token from GPG" >> "${HOME}/.bashrc"
+        echo "export ${TOKEN_ENV_VAR_NAME}=\"${TOKEN}\"" >> "${HOME}/.bashrc"
+        echo "Auth token ${TOKEN_ENV_VAR_NAME} added to environment variables."
+    else
+        echo "Warning: unable to decrypt ${TOKEN_ENV_VAR_NAME}." >&2
+    fi
+fi
+
+# Install and configure tmux once.
+if [[ ! -d "${HOME}/tmux-config" ]]; then
+    echo "Installing tmux config"
+    git clone https://github.com/samoshkin/tmux-config.git "${HOME}/tmux-config"
+    tee "${HOME}/tmux-config/tmux/tmux-conf.patch" <<'EOF'
+18c18
+< set -g prefix C-a
+---
+> set -g prefix M-q
+41,42c41,42
+< unbind }    # swap-pane -D
+< unbind {    # swap-pane -U
+---
+> unbind \}    # swap-pane -D
+> unbind \{    # swap-pane -U
+98c98
+< bind \ if '[ #{pane_index} -eq 1 ]' \
+---
+> bind \\ if '[ #{pane_index} -eq 1 ]' \
+EOF
+    patch "${HOME}/tmux-config/tmux/tmux.conf" "${HOME}/tmux-config/tmux/tmux-conf.patch"
+    "${HOME}/tmux-config/install.sh"
+    # Enable clipboard and passthrough.
+    sed -i '/^set -g mouse on/a set -g extended-keys on' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -g extended-keys on/a set -g extended-keys-format csi-u' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -g extended-keys-format csi-u/a set -g set-clipboard on' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -g set-clipboard on/a set -g allow-passthrough on' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i 's/^set -g default-terminal.*/set -g default-terminal "tmux-256color"/' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -g default-terminal/a set -ga terminal-overrides ",xterm-256color:Tc,tmux-256color:Tc"' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -ga terminal-overrides/a set -gq utf8 on' "${HOME}/tmux-config/tmux/tmux.conf"
+    sed -i '/^set -gq utf8 on/a set -gq status-utf8 on' "${HOME}/tmux-config/tmux/tmux.conf"
+    ln -sf "${HOME}/tmux-config/tmux/tmux.conf" "${HOME}/.tmux.conf"
+fi
+
+echo "Post-start complete"

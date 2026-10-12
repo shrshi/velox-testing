@@ -1,0 +1,14 @@
+{
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "1.1.0",
+      "resolved": "ghcr.io/devcontainers/features/sshd@sha256:f5251b8e4325f68f7280973c6cd65daff414449c66f240621502d4e8e74eb7ee",
+      "integrity": "sha256:f5251b8e4325f68f7280973c6cd65daff414449c66f240621502d4e8e74eb7ee"
+    },
+    "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {
+      "version": "26.10.3",
+      "resolved": "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils@sha256:870fc5b5fe113a16c4f6907468f032631f6e70da1c0f9e7e5fe6b2a8ea7e2a44",
+      "integrity": "sha256:870fc5b5fe113a16c4f6907468f032631f6e70da1c0f9e7e5fe6b2a8ea7e2a44"
+    }
+  }
+}

@@ -1,0 +1,96 @@
+#!/bin/bash
+# Run velox tests
+# Usage: test-velox [-j N] [--filter PATTERN] [--cuda]
+
+set -euo pipefail
+
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+VELOX_DIR="${VELOX_ROOT:-$(resolve_velox_root)}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-${VELOX_DIR}/build}"
+NUM_THREADS="${NUM_THREADS:-${VELOX_TEST_JOBS}}"
+
+usage() {
+    cat <<EOF
+Usage: test-velox [OPTIONS]
+
+Run Velox-cuDF tests.
+
+Options:
+  -j, --jobs N        Number of parallel test jobs (default: VELOX_TEST_JOBS from config.env)
+  --filter PATTERN    Further restrict tests matching pattern (ctest -R)
+  --exclude PATTERN   Exclude tests matching pattern (ctest -E)
+  --list              List available tests without running
+  -h, --help          Show this help message
+
+Environment variables:
+  BUILD_TYPE          release or debug (default: release)
+  VELOX_ROOT          Velox source root (default: current Velox worktree or ~/velox)
+  BUILD_BASE_DIR      Build base directory (default: <Velox source>/build)
+  NUM_THREADS         Number of parallel test jobs
+EOF
+}
+
+FILTER=""
+EXCLUDE=""
+LIST_ONLY=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs)
+            NUM_THREADS="$2"
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            shift
+            ;;
+        --filter) FILTER="$2"; shift 2 ;;
+        --exclude) EXCLUDE="$2"; shift 2 ;;
+        --list) LIST_ONLY=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: test jobs must be a positive integer" >&2
+    exit 1
+fi
+
+BUILD_DIR="${BUILD_BASE_DIR}/${BUILD_TYPE}"
+if [[ ! -d "${BUILD_DIR}" ]]; then
+    echo "Error: Build directory not found at ${BUILD_DIR}"
+    echo "Please configure and build Velox first."
+    exit 1
+fi
+
+cd "${BUILD_DIR}"
+
+DEFAULT_SKIP="velox_cudf_s3_read_test"
+EXCLUDE="${EXCLUDE:-${DEFAULT_SKIP}}"
+FILTER="${FILTER:-^velox_cudf_}"
+
+if [[ "${LIST_ONLY}" == true ]]; then
+    echo "Available tests:"
+    ctest -N -R "${FILTER}" ${EXCLUDE:+-E "${EXCLUDE}"}
+    exit 0
+fi
+
+echo -e "\033[1;36mRunning Velox-cuDF Tests\033[0m"
+echo "Build dir: ${BUILD_DIR}"
+echo "Threads:   ${NUM_THREADS}"
+echo "Filter:    ${FILTER:-<none>}"
+echo "Exclude:   ${EXCLUDE}"
+echo ""
+
+ctest -j "${NUM_THREADS}" --output-on-failure --no-tests=error \
+    -R "${FILTER}" \
+    ${EXCLUDE:+-E "${EXCLUDE}"}
+
+echo ""
+echo -e "\033[1;32mVelox-cuDF tests complete\033[0m"

@@ -1,0 +1,22 @@
+{
+  "name": "Mount subdirectories of datasets directory",
+  "id": "datasets",
+  "version": "0.alpha",
+  "mount": [
+    {
+      "source": "/datasets/prospector-lm/cleaned_exact_dedup_all_cc",
+      "target": "/home/coder/datasets/prospector-lm/cleaned_exact_dedup_all_cc",
+      "type": "bind,readonly"
+    },
+    {
+      "source": "/datasets/prospector-lm/Books3_shuf/resharded",
+      "target": "/home/coder/datasets/prospector-lm/Books3_shuf/resharded",
+      "type": "bind,readonly"
+    },
+    {
+      "source": "/datasets/adattagupta/jsonl_zstd_data",
+      "target": "/home/coder/datasets/jsonl_zstd_data",
+      "type": "bind,readonly"
+    }
+  ]
+}

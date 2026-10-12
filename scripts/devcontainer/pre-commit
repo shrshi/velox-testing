@@ -1,0 +1,14 @@
+#!/bin/bash
+# Wrapper around pre-commit for this devcontainer.
+#
+# The devcontainer exports RUSTC_WRAPPER (sccache) and PYTHONSAFEPATH=1 for
+# build tuning, but hook environments assume a vanilla shell:
+#   - RUSTC_WRAPPER: sccache sandboxes compiles with bubblewrap, which hides
+#     the temporary rustup toolchain pre-commit bootstraps for Rust hooks.
+#   - PYTHONSAFEPATH=1: Python no longer puts the script's directory on
+#     sys.path, breaking velox's run-clang-tidy.py ("import util").
+# Default BUILD_PATH to the standard Velox build tree so the clang-tidy hook
+# finds compile_commands.json instead of being silently skipped.
+export BUILD_PATH="${BUILD_PATH:-/opt/velox-build/release}"
+
+exec env -u RUSTC_WRAPPER -u PYTHONSAFEPATH pre-commit "$@"

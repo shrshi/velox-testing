@@ -1,0 +1,177 @@
+#!/bin/bash
+# Build presto-native-execution with velox and cuDF support
+# Usage: build-presto [--release|--debug] [-j N]
+
+set -euo pipefail
+# shellcheck source=_devcontainer_common_utils.sh
+source "$(dirname "$(readlink -f "$0")")/_devcontainer_common_utils.sh"
+select_sccache_family presto
+
+# Defaults
+BUILD_TYPE="${BUILD_TYPE:-release}"
+NUM_THREADS="${NUM_THREADS:-${BUILD_JOBS}}"
+BUILD_BASE_DIR="${BUILD_BASE_DIR:-/opt/presto-build}"
+FB_DEPS_PREFIX="${FB_DEPS_PREFIX:-/opt/fb-deps}"
+
+usage() {
+    cat <<EOF
+Usage: build-presto [OPTIONS]
+
+Build presto-native-execution with velox and cuDF support.
+Automatically builds Facebook OSS dependencies (folly, fbthrift, etc.)
+on first run.
+
+Options:
+  --release         Build in release mode (default)
+  --debug           Build in debug mode
+  -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env).
+  --rebuild-deps    Force rebuild of Facebook OSS dependencies
+  -h, --help        Show this help message
+
+Environment variables:
+  BUILD_TYPE        release or debug
+  NUM_THREADS       Number of parallel jobs
+  BUILD_BASE_DIR    Base directory for build output (default: /opt/presto-build)
+  FB_DEPS_PREFIX    Install prefix for FB deps (default: /opt/fb-deps)
+EOF
+}
+
+REBUILD_DEPS=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release) BUILD_TYPE="release"; shift ;;
+        --debug) BUILD_TYPE="debug"; shift ;;
+        -j|--jobs)
+            NUM_THREADS="$2"
+            shift 2
+            ;;
+        -j*)
+            NUM_THREADS="${1#-j}"
+            shift
+            ;;
+        --rebuild-deps) REBUILD_DEPS=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
+    echo "Error: build jobs must be a positive integer" >&2
+    exit 1
+fi
+
+PRESTO_DIR="${HOME}/presto/presto-native-execution"
+if [[ ! -d "${PRESTO_DIR}" ]]; then
+    echo "Error: presto-native-execution not found at ${PRESTO_DIR}"
+    echo "Please ensure presto is mounted as a sibling directory."
+    exit 1
+fi
+
+FB_DEPS_ARGS=(-j "${NUM_THREADS}" --prefix "${FB_DEPS_PREFIX}")
+if [[ "${REBUILD_DEPS}" == true ]]; then
+    FB_DEPS_ARGS+=(--rebuild)
+fi
+build-fb-deps "${FB_DEPS_ARGS[@]}"
+
+cd "${PRESTO_DIR}"
+
+# Use ~/velox instead of the presto velox submodule so both repos share
+# the same source. Copy the contents over (preserving presto's directory)
+# so the build works without symlinks.
+VELOX_DIR="${HOME}/velox"
+if [[ -d "${VELOX_DIR}" ]]; then
+    echo "Syncing ${VELOX_DIR} into ${PRESTO_DIR}/velox..."
+    rsync -a --delete \
+        --exclude '.git' \
+        --exclude '_build' \
+        "${VELOX_DIR}/" "${PRESTO_DIR}/velox/"
+fi
+
+require_remote_sccache
+resolve_cudaarchs
+
+echo ""
+echo -e "\033[1;36mBuilding Presto Native Execution\033[0m"
+echo "Build type:  ${BUILD_TYPE}"
+echo "Threads:     ${NUM_THREADS}"
+echo "CUDA archs:  ${CUDAARCHS}"
+echo "Build dir:   ${BUILD_BASE_DIR}"
+echo ""
+
+# Build CMake flags
+# Disable C++20 module scanning — GCC 14 ICEs with -fmodules-ts on CMake 4.x
+EXTRA_CMAKE_FLAGS="-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
+# fbthrift headers require C++20 coroutines (FOLLY_HAS_COROUTINES); presto's
+# CMakeLists.txt defaults to C++11 so we must force C++20 explicitly.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_STANDARD=20"
+# Suppress false-positive stringop-overflow from system fmt v9 (format_dragon/bigint).
+# -Wno-error=nonnull: presto's SystemConnector.cpp triggers a false-positive with
+# VELOX_CHECK_NOT_NULL on 'this' in a constructor.
+# -UFOLLY_CFG_NO_COROUTINES: presto's CMakeLists.txt globally sets this via
+# add_compile_definitions, which makes FOLLY_HAS_COROUTINES=0 and breaks fbthrift
+# headers (BiDiStream.h etc.) that unconditionally use folly::coro::AsyncGenerator.
+# Since velox has no folly::coro usage, undoing the define for all TUs is safe.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_CXX_FLAGS=-Wno-error=stringop-overflow\\ -Wno-error=nonnull\\ -UFOLLY_CFG_NO_COROUTINES"
+# Disable PIE: fbthrift static archives contain construction vtables with HIDDEN
+# visibility (from virtual inheritance in apache::thrift exception classes).
+# The linker can't resolve R_X86_64_PC32 relocations against hidden symbols in PIE.
+EXTRA_CMAKE_FLAGS+=" -DCMAKE_EXE_LINKER_FLAGS=-no-pie"
+EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_PARQUET=ON"
+EXTRA_CMAKE_FLAGS+=" -DPRESTO_ENABLE_CUDF=ON"
+
+# Velox bundled dependencies (passed through to add_subdirectory(velox))
+EXTRA_CMAKE_FLAGS+=" -DGTest_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DDuckDB_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfaiss_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dsimdjson_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DFastFloat_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dfolly_SOURCE=SYSTEM"
+EXTRA_CMAKE_FLAGS+=" -Dabsl_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -DgRPC_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dxsimd_SOURCE=SYSTEM"
+EXTRA_CMAKE_FLAGS+=" -DArrow_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Dgeos_SOURCE=BUNDLED"
+EXTRA_CMAKE_FLAGS+=" -Ds2geometry_SOURCE=BUNDLED"
+
+# Auto-detect pre-built RAPIDS libraries (cudf, rmm, kvikio)
+append_rapids_cmake_flags EXTRA_CMAKE_FLAGS
+
+echo ""
+
+BUILD_START=${SECONDS}
+eval "cmake -B \"${BUILD_BASE_DIR}\" \
+    -DTREAT_WARNINGS_AS_ERRORS=1 \
+    -DENABLE_ALL_WARNINGS=1 \
+    -DCMAKE_PREFIX_PATH=\"${FB_DEPS_PREFIX}\" \
+    -DCMAKE_BUILD_TYPE=\"${BUILD_TYPE}\" \
+    -GNinja \
+    -DMAX_LINK_JOBS=\"${MAX_LINK_JOBS:-}\" \
+    -DMAX_HIGH_MEM_JOBS=\"${MAX_HIGH_MEM_JOBS:-}\" \
+    ${EXTRA_CMAKE_FLAGS}"
+
+build_once() {
+    sccache --zero-stats
+    local build_rc=0
+    ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" || build_rc=$?
+    if ! validate_remote_sccache_stats; then
+        return 75
+    fi
+    return "${build_rc}"
+}
+
+build_rc=0
+build_once || build_rc=$?
+if [[ "${build_rc}" == 75 ]]; then
+    echo "Remote compilation failed; restarting sccache and retrying once" >&2
+    restart_remote_sccache
+    build_once
+elif [[ "${build_rc}" != 0 ]]; then
+    exit "${build_rc}"
+fi
+
+ELAPSED=$(( SECONDS - BUILD_START ))
+echo ""
+echo -e "\033[1;32mPresto build time:\033[0m $(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m $(( ELAPSED % 60 ))s"
+echo "Binaries in: ${BUILD_BASE_DIR}"

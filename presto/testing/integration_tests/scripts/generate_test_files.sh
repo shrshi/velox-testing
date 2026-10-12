@@ -39,7 +39,7 @@ OPTIONS:
 
 EXAMPLES:
     $0 -s 1 -b tpch
-    $0 --scale-factor 0.01 --convert-decimals-to-floats
+    $0 --scale-factor 0.01
 
 EOF
 }

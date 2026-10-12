@@ -49,6 +49,10 @@ OPTIONS:
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     -m, --metrics           Collect detailed metrics from Presto REST API after each query, including failures.
                             Metrics are stored in query-specific directories.
+    --reference-results-dir Path to reference Parquet files. Overrides PRESTO_EXPECTED_RESULTS_DIR.
+                            Writes validation_results.json next to benchmark_result.json.
+                            Missing explicit directories are errors; missing environment paths warn.
+                            Without references, results are marked not-validated.
     -v, --verbose           Print debug logs for worker/engine detection
                             (e.g. node URIs, cluster-tag, GPU model).
                             Use when engine is misdetected or the run fails.
@@ -198,6 +202,16 @@ parse_args() {
         METRICS=true
         shift
         ;;
+      --reference-results-dir)
+        if [[ -n $2 ]]; then
+          PRESTO_EXPECTED_RESULTS_DIR=$2
+          EXPLICIT_REFERENCE_DIR=true
+          shift 2
+        else
+          echo "Error: --reference-results-dir requires a value"
+          exit 1
+        fi
+        ;;
       -v|--verbose)
         export PRESTO_BENCHMARK_DEBUG=1
         shift
@@ -227,6 +241,11 @@ fi
 
 if [[ ${COLD} == "true" && ${COLD_EVERY_ITERATION} == "true" ]]; then
   echo "Error: --cold and --cold-every-iteration are mutually exclusive." >&2
+  exit 1
+fi
+
+if [[ ${EXPLICIT_REFERENCE_DIR} == true && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[Validation] Error: --reference-results-dir not found: ${PRESTO_EXPECTED_RESULTS_DIR}" >&2
   exit 1
 fi
 
@@ -319,4 +338,25 @@ fi
 echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
-pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]}
+PYTEST_EXIT=0
+pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
+
+VALIDATION_EXIT=0
+VALIDATE_ARGS=(--output-dir "${OUTPUT_DIR:-$(pwd)/benchmark_output}" --benchmark-type "${BENCHMARK_TYPE}")
+[[ -n ${TAG} ]] && VALIDATE_ARGS+=(--tag "${TAG}")
+[[ -n ${QUERIES} ]] && VALIDATE_ARGS+=(--queries "${QUERIES}")
+if [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} && ! -d ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  echo "[Validation] Warning: PRESTO_EXPECTED_RESULTS_DIR not found: ${PRESTO_EXPECTED_RESULTS_DIR}; validation skipped."
+elif [[ -n ${PRESTO_EXPECTED_RESULTS_DIR} ]]; then
+  VALIDATE_ARGS+=(--reference-results-dir "${PRESTO_EXPECTED_RESULTS_DIR}")
+fi
+"${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
+  -p "${SCRIPT_DIR}/../../common/testing/validate_results.py" \
+  -r "${SCRIPT_DIR}/../testing/requirements.txt" \
+  -- "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
+
+# Preserve benchmark failure while still validating completed query results.
+if [[ ${PYTEST_EXIT} -ne 0 ]]; then
+  exit "${PYTEST_EXIT}"
+fi
+exit "${VALIDATION_EXIT}"

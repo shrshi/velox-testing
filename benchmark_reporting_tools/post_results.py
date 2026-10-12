@@ -355,6 +355,7 @@ def _build_submission_payload(
     is_official: bool,
     asset_ids: list[int] | None = None,
     concurrency_streams: int = 1,
+    validation_results: dict | None = None,
 ) -> dict:
     """Build a BenchmarkSubmission payload from parsed dataclasses.
 
@@ -395,9 +396,15 @@ def _build_submission_payload(
         return (float("inf"), name)
 
     query_names = sorted(raw_times.keys(), key=_query_sort_key)
+    per_query_validation = (validation_results or {}).get("queries", {})
+
+    def validation_result(query_name):
+        return per_query_validation.get(query_name.lower(), {"status": "not-validated"})
 
     for query_name in query_names:
         times = raw_times[query_name]
+        if times is None:
+            times = [None]
         is_failed = query_name in failed_queries
 
         # Each execution becomes a separate query log entry
@@ -413,6 +420,7 @@ def _build_submission_payload(
                     "execution_order": execution_order,
                     "runtime_ms": runtime_ms,
                     "status": "error" if is_failed else "success",
+                    "validation_result": validation_result(query_name),
                     "extra_info": {
                         "execution_number": exec_idx + 1,
                     },
@@ -429,6 +437,7 @@ def _build_submission_payload(
                     "execution_order": execution_order,
                     "runtime_ms": None,
                     "status": "error",
+                    "validation_result": validation_result(query_name),
                     "extra_info": {
                         "error": str(error_info),
                     },
@@ -469,6 +478,7 @@ def _build_submission_payload(
         "extra_info": extra_info,
         "is_official": is_official,
         "asset_ids": asset_ids,
+        "validation_status": (validation_results or {}).get("overall_status", "not-validated"),
     }
 
 
@@ -616,6 +626,11 @@ async def _process_benchmark_dir(
             print("  Warning: no config directory found. Use --config-dir to specify one.", file=sys.stderr)
         engine_config = None
 
+    validation_results_path = benchmark_dir / "validation_results.json"
+    validation_results = (
+        json.loads(validation_results_path.read_text()) if validation_results_path.exists() else None
+    )
+
     # Resolve logs directory: explicit override → auto-detect from repo
     effective_logs_dir = logs_dir
     if effective_logs_dir is None:
@@ -669,6 +684,7 @@ async def _process_benchmark_dir(
                 is_official=is_official,
                 asset_ids=asset_ids,
                 concurrency_streams=concurrency_streams,
+                validation_results=validation_results,
             )
         except Exception as e:
             print(f"  Error building payload for '{bench_name}': {e}", file=sys.stderr)
@@ -680,6 +696,7 @@ async def _process_benchmark_dir(
         print(f"  Identifier hash: {payload['query_engine']['identifier_hash']}", file=sys.stderr)
         print(f"  Node count: {payload['node_count']}", file=sys.stderr)
         print(f"  Query logs: {len(payload['query_logs'])}", file=sys.stderr)
+        print(f"  Validation status: {payload['validation_status']}", file=sys.stderr)
 
         if dry_run:
             print("\n  [DRY RUN] Payload:", file=sys.stderr)

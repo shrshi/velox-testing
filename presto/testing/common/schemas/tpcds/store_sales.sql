@@ -1,15 +1,15 @@
 CREATE TABLE hive.{schema}.store_sales (
-    ss_sold_date_sk INTEGER,
-    ss_sold_time_sk INTEGER,
-    ss_item_sk INTEGER,
-    ss_customer_sk INTEGER,
-    ss_cdemo_sk INTEGER,
-    ss_hdemo_sk INTEGER,
-    ss_addr_sk INTEGER,
-    ss_store_sk INTEGER,
-    ss_promo_sk INTEGER,
-    ss_ticket_number INTEGER,
-    ss_quantity INTEGER,
+    ss_sold_date_sk BIGINT,
+    ss_sold_time_sk BIGINT,
+    ss_item_sk BIGINT,
+    ss_customer_sk BIGINT,
+    ss_cdemo_sk BIGINT,
+    ss_hdemo_sk BIGINT,
+    ss_addr_sk BIGINT,
+    ss_store_sk BIGINT,
+    ss_promo_sk BIGINT,
+    ss_ticket_number BIGINT,
+    ss_quantity BIGINT,
     ss_wholesale_cost DOUBLE,
     ss_list_price DOUBLE,
     ss_sales_price DOUBLE,
@@ -22,4 +22,4 @@ CREATE TABLE hive.{schema}.store_sales (
     ss_net_paid DOUBLE,
     ss_net_paid_inc_tax DOUBLE,
     ss_net_profit DOUBLE
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

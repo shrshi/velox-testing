@@ -1,5 +1,5 @@
 CREATE TABLE hive.{schema}.customer_address (
-    ca_address_sk INTEGER,
+    ca_address_sk BIGINT,
     ca_address_id VARCHAR,
     ca_street_number VARCHAR,
     ca_street_name VARCHAR,
@@ -12,4 +12,4 @@ CREATE TABLE hive.{schema}.customer_address (
     ca_country VARCHAR,
     ca_gmt_offset DOUBLE,
     ca_location_type VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

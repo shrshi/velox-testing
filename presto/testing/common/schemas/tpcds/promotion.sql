@@ -1,11 +1,11 @@
 CREATE TABLE hive.{schema}.promotion (
-    p_promo_sk INTEGER,
+    p_promo_sk BIGINT,
     p_promo_id VARCHAR,
-    p_start_date_sk INTEGER,
-    p_end_date_sk INTEGER,
-    p_item_sk INTEGER,
+    p_start_date_sk BIGINT,
+    p_end_date_sk BIGINT,
+    p_item_sk BIGINT,
     p_cost DOUBLE,
-    p_response_target INTEGER,
+    p_response_target BIGINT,
     p_promo_name VARCHAR,
     p_channel_dmail VARCHAR,
     p_channel_email VARCHAR,
@@ -18,4 +18,4 @@ CREATE TABLE hive.{schema}.promotion (
     p_channel_details VARCHAR,
     p_purpose VARCHAR,
     p_discount_active VARCHAR
-) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = 'file:{file_path}')
+) WITH (FORMAT = 'PARQUET', EXTERNAL_LOCATION = '{location}')

@@ -8,19 +8,35 @@ select_sccache_family rapids
 
 CMAKE_ARGS=()
 SOURCE_DIR="${HOME}/cudf/cpp"
-BUILD_DIR="${SOURCE_DIR}/build/latest"
+BUILD_DIR=""
 
 usage() {
     cat <<EOF
-Usage: configure-libcudf-cpp [-D<VAR>=<VALUE>]...
+Usage: configure-libcudf-cpp [OPTIONS] [-D<VAR>=<VALUE>]...
 
 Configure libcudf with tests and benchmarks for the native CUDA architecture.
 The build is not compiled or installed.
+
+Options:
+  --source-dir PATH  C++ source directory (default: ~/cudf/cpp)
+  --build-dir PATH   Build directory (default: <source-dir>/build/latest)
+  -D<VAR>=<VALUE>    Additional CMake cache entry
+  -h, --help         Show this help message
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --source-dir|--build-dir|-D)
+            if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+                echo "Error: $1 requires a value" >&2
+                exit 1
+            fi
+            ;;
+    esac
+    case "$1" in
+        --source-dir) SOURCE_DIR="$2"; shift 2 ;;
+        --build-dir) BUILD_DIR="$2"; shift 2 ;;
         -D)
             case "$2" in
                 BUILD_TESTS=*|BUILD_BENCHMARKS=*|CMAKE_CUDA_ARCHITECTURES=*|\
@@ -45,6 +61,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+SOURCE_DIR=$(realpath -m "${SOURCE_DIR}")
+BUILD_DIR=$(realpath -m "${BUILD_DIR:-${SOURCE_DIR}/build/latest}")
+CACHE="${BUILD_DIR}/CMakeCache.txt"
+if [[ -f "${CACHE}" ]]; then
+    cached_source=$(sed -n 's/^CMAKE_HOME_DIRECTORY:[^=]*=//p' "${CACHE}" | tail -1)
+    if [[ -z "${cached_source}" || "$(realpath -m "${cached_source}")" != "${SOURCE_DIR}" ]]; then
+        echo "Error: ${CACHE} belongs to '${cached_source}', not '${SOURCE_DIR}'" >&2
+        exit 1
+    fi
+fi
+
+configure_sccache_basedirs "${SOURCE_DIR}"
 require_remote_sccache
 
 configure_once() {

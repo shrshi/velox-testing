@@ -8,6 +8,9 @@ select_sccache_family rapids
 
 NUM_THREADS="${BUILD_JOBS}"
 CMAKE_ARGS=()
+SOURCE_DIR="${HOME}/cudf/cpp"
+BUILD_DIR=""
+TARGET_ARGS=()
 
 usage() {
     cat <<EOF
@@ -17,6 +20,9 @@ Build libcudf, tests, and benchmarks without installing them. Existing compatibl
 build trees are built incrementally without explicit reconfiguration.
 
 Options:
+  --source-dir PATH  C++ source directory (default: ~/cudf/cpp)
+  --build-dir PATH   Build directory (default: <source-dir>/build/latest)
+  --target TARGET    Build only this target (repeatable; default: all)
   -j, --jobs N      Number of parallel jobs (default: BUILD_JOBS from config.env)
   -D<VAR>=<VALUE>   Additional CMake cache entry
   -h, --help        Show this help message
@@ -25,6 +31,27 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --source-dir|--build-dir|--target|-j|--jobs|--parallel|-D)
+            if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+                echo "Error: $1 requires a value" >&2
+                exit 1
+            fi
+            ;;
+    esac
+    case "$1" in
+        --source-dir) SOURCE_DIR="$2"; shift 2 ;;
+        --build-dir) BUILD_DIR="$2"; shift 2 ;;
+        --target)
+            if [[ "$2" == install || "$2" == install/* ]]; then
+                echo "Error: installation targets are not supported" >&2
+                exit 1
+            fi
+            if [[ ${#TARGET_ARGS[@]} -eq 0 ]]; then
+                TARGET_ARGS+=(--target)
+            fi
+            TARGET_ARGS+=("$2")
+            shift 2
+            ;;
         -j|--jobs|--parallel) NUM_THREADS="$2"; shift 2 ;;
         -j*) NUM_THREADS="${1#-j}"; shift ;;
         -D)
@@ -56,8 +83,8 @@ if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
     exit 1
 fi
 
-SOURCE_DIR="${HOME}/cudf/cpp"
-BUILD_DIR="${SOURCE_DIR}/build/latest"
+SOURCE_DIR=$(realpath -m "${SOURCE_DIR}")
+BUILD_DIR=$(realpath -m "${BUILD_DIR:-${SOURCE_DIR}/build/latest}")
 CACHE="${BUILD_DIR}/CMakeCache.txt"
 
 cache_value() {
@@ -68,6 +95,11 @@ needs_configure=false
 if [[ ! -f "${CACHE}" ]]; then
     needs_configure=true
 else
+    cached_source=$(cache_value CMAKE_HOME_DIRECTORY)
+    if [[ -z "${cached_source}" || "$(realpath -m "${cached_source}")" != "${SOURCE_DIR}" ]]; then
+        echo "Error: ${CACHE} belongs to '${cached_source}', not '${SOURCE_DIR}'" >&2
+        exit 1
+    fi
     [[ "$(cache_value BUILD_TESTS)" == "ON" ]] || needs_configure=true
     [[ "$(cache_value BUILD_BENCHMARKS)" == "ON" ]] || needs_configure=true
     [[ "$(cache_value CMAKE_CUDA_ARCHITECTURES)" == "native" ]] || needs_configure=true
@@ -79,6 +111,7 @@ else
     fi
 fi
 
+configure_sccache_basedirs "${SOURCE_DIR}"
 require_remote_sccache
 
 run_remote_once() {
@@ -104,7 +137,7 @@ run_remote_with_retry() {
 }
 
 if [[ "${needs_configure}" == true ]]; then
-    configure-libcudf-cpp "${CMAKE_ARGS[@]}"
+    configure-libcudf-cpp --source-dir "${SOURCE_DIR}" --build-dir "${BUILD_DIR}" "${CMAKE_ARGS[@]}"
 fi
 
-run_remote_with_retry cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}"
+run_remote_with_retry cmake --build "${BUILD_DIR}" --parallel "${NUM_THREADS}" "${TARGET_ARGS[@]}"

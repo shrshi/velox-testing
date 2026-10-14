@@ -43,8 +43,8 @@ resolve_velox_root() {
     fi
 }
 
-configure_velox_sccache_basedirs() {
-    local repository="${1:-${VELOX_ROOT:-$(resolve_velox_root)}}"
+configure_sccache_basedirs() {
+    local repository="$1"
     local worktree_list
     worktree_list=$(git -C "${repository}" worktree list --porcelain) || return 1
     local worktree
@@ -54,7 +54,7 @@ configure_velox_sccache_basedirs() {
         worktrees+=("${worktree}")
     done < <(printf '%s\n' "${worktree_list}" | sed -n 's/^worktree //p')
     if [[ ${#worktrees[@]} -eq 0 ]]; then
-        echo "Error: no Velox worktree roots found for sccache" >&2
+        echo "Error: no worktree roots found for sccache in ${repository}" >&2
         return 1
     fi
 
@@ -80,7 +80,7 @@ select_sccache_family() {
     mkdir -p "${SCCACHE_DIR}"
 
     if [[ "${family}" == "velox" ]]; then
-        configure_velox_sccache_basedirs || return 1
+        configure_sccache_basedirs "${VELOX_ROOT:-$(resolve_velox_root)}" || return 1
     fi
 
     export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
@@ -89,6 +89,19 @@ select_sccache_family() {
     export CMAKE_C_COMPILER_LAUNCHER=sccache
     export CMAKE_CXX_COMPILER_LAUNCHER=sccache
     export CMAKE_CUDA_COMPILER_LAUNCHER=sccache
+}
+
+require_idle_sccache() {
+    local stats
+    stats=$(sccache --show-adv-stats --stats-format json) || return 1
+    if ! jq -e '
+        .stats.active_compilations == 0 and
+        .stats.queued_compilations == 0 and
+        .stats.pending_compilations == 0
+    ' <<<"${stats}" >/dev/null; then
+        echo "Error: cannot restart sccache while compilations are outstanding or activity is unknown" >&2
+        return 1
+    fi
 }
 
 require_remote_sccache() {
@@ -111,39 +124,34 @@ require_remote_sccache() {
         '$dirs | split(":") | map(sub("/+$"; "")) | unique | join(":")') || return 1
 
     if sccache --show-stats >/dev/null 2>&1 && [[ -n "${SCCACHE_BASEDIRS:-}" ]]; then
-        local current_basedirs
-        current_basedirs=$(
-            sccache --show-adv-stats --stats-format json |
-                jq -r '.basedirs | map(sub("/+$"; "")) | unique | join(":")'
-        )
+        local stats current_basedirs
+        stats=$(sccache --show-adv-stats --stats-format json) || return 1
+        current_basedirs=$(jq -er '.basedirs | map(sub("/+$"; "")) | unique | join(":")' \
+            <<<"${stats}") || return 1
         if [[ "${current_basedirs}" != "${expected_basedirs}" ]]; then
-            if [[ "$(sccache --show-adv-stats --stats-format json | jq -r '.stats.active_compilations')" != 0 ]]; then
-                echo "Error: cannot update sccache base directories during an active Velox build" >&2
-                return 1
-            fi
-            sccache --stop-server >/dev/null
-            sccache --start-server >/dev/null
+            require_idle_sccache || return 1
+            sccache --stop-server >/dev/null || return 1
+            sccache --start-server >/dev/null || return 1
         fi
     elif ! sccache --show-stats >/dev/null 2>&1; then
-        sccache --start-server >/dev/null
+        sccache --start-server >/dev/null || return 1
     fi
-    if [[ "${SCCACHE_SERVER_PORT}" == 4228 ]]; then
-        local reported_basedirs
-        reported_basedirs=$(
-            sccache --show-adv-stats --stats-format json |
-                jq -r '.basedirs | map(sub("/+$"; "")) | unique | join(":")'
-        ) || return 1
+    if [[ -n "${SCCACHE_BASEDIRS:-}" || "${SCCACHE_SERVER_PORT}" == 4228 ]]; then
+        local reported_stats reported_basedirs
+        reported_stats=$(sccache --show-adv-stats --stats-format json) || return 1
+        reported_basedirs=$(jq -er '.basedirs | map(sub("/+$"; "")) | unique | join(":")' \
+            <<<"${reported_stats}") || return 1
         if [[ -z "${SCCACHE_BASEDIRS:-}" ||
               "${reported_basedirs}" != "${expected_basedirs}" ]]; then
-            echo "Error: Velox sccache server base directories do not match registered worktrees" >&2
+            echo "Error: sccache server base directories do not match registered worktrees" >&2
             return 1
         fi
-        echo "Velox sccache base directories: ${reported_basedirs}"
+        echo "sccache base directories: ${reported_basedirs}"
     fi
-    sccache --dist-auth >/dev/null
+    sccache --dist-auth >/dev/null || return 1
 
     local status
-    status=$(sccache --dist-status --stats-format json)
+    status=$(sccache --dist-status --stats-format json) || return 1
     if ! jq -e '(.SchedulerStatus[1].servers // []) | length > 0' \
         <<<"${status}" >/dev/null; then
         echo "Error: sccache-dist scheduler reports no build servers" >&2
@@ -172,8 +180,9 @@ validate_remote_sccache_stats() {
 }
 
 restart_remote_sccache() {
-    sccache --stop-server >/dev/null 2>&1 || true
-    sccache --start-server >/dev/null
+    require_idle_sccache || return 1
+    sccache --stop-server >/dev/null || return 1
+    sccache --start-server >/dev/null || return 1
     require_remote_sccache
 }
 

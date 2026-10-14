@@ -92,9 +92,6 @@ echo "Installing nodejs"
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo DEBIAN_FRONTEND=noninteractive apt install -y nodejs
 
-echo "Installing opencode"
-sudo npm install -g opencode-ai@latest
-
 echo "Installing pi"
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 

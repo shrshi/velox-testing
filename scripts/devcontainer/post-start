@@ -23,7 +23,6 @@ if [[ -d "${DOTFILES_DIR}" ]]; then
     mkdir -p "${HOME}/.config/nvim" "${HOME}/.pi"
     ln -sfn ../../dotfiles/init.lua "${HOME}/.config/nvim/init.lua"
     ln -sfn ../../dotfiles/lua "${HOME}/.config/nvim/lua"
-    ln -sfn "${DOTFILES_DIR}/.opencode" "${HOME}/.opencode"
     ln -sfn "${DOTFILES_DIR}/.pi/agent" "${HOME}/.pi/agent"
 else
     echo "Dotfiles mount not found: ${DOTFILES_DIR}" >&2

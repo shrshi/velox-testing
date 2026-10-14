@@ -121,6 +121,20 @@ build-presto --release         # release build (default)
 build-presto --rebuild-deps    # force rebuild of FB deps
 ```
 
+For a cuDF worktree, both libcudf wrappers accept `--source-dir` (the `cpp`
+directory) and `--build-dir`. The build directory defaults to
+`<source-dir>/build/latest`; a cache belonging to another source tree is rejected.
+Both wrappers normalize sccache paths across all registered worktrees of the selected
+source repository and verify the server's base directories before compiling. A server
+restart is refused when active, queued, or pending compilations exist, or their counts
+cannot be verified. Use `--target` (repeatable) to build only selected targets without
+installing:
+
+```bash
+build-libcudf-cpp --source-dir /path/to/cudf-worktree/cpp \
+  --build-dir /path/to/cudf-worktree/cpp/build/latest --target JOIN_TEST
+```
+
 ### Running pre-commit hooks on Velox
 
 Always invoke the wrapper, not the venv's `pre-commit` directly:

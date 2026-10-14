@@ -79,11 +79,6 @@
   "containerEnv": {
     "VELOX_DEPENDENCY_SOURCE": "SYSTEM",
     "SSH_AUTH_SOCK": "/ssh-agent",
-    "OPENCODE_CONFIG_DIR": "/home/coder/.opencode",
-    "OPENCODE_EXPERIMENTAL": "1",
-    "OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT": "0",
-    "OPENCODE_ENABLE_EXA": "1",
-    "OPENCODE_DISABLE_CLAUDE_CODE": "1",
     "PROMPT_COMMAND": "",
     "XDG_CONFIG_HOME": "/home/coder/.config"
   }

@@ -62,7 +62,7 @@ RUN mkdir /runtime-libraries
 
 RUN \
     --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
-    --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
+    --mount=type=bind,from=velox_source,target=/presto_native_staging/presto/velox \
     --mount=type=cache,target=${BUILD_BASE_DIR} \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \

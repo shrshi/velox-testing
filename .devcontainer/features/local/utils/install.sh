@@ -80,10 +80,16 @@ update-alternatives --install /usr/bin/clangd clangd /usr/bin/clangd-${LLVM_VERS
 rm llvm.sh
 
 echo "Installing nsight systems"
+sudo DEBIAN_FRONTEND=noninteractive apt install -y libxi6 libxcb-dri2-0
+NSIGHT_SYSTEMS_VERSION=2026.5.1
+NSIGHT_SYSTEMS_BUILD=2026.5.1.161-1
+NSIGHT_SYSTEMS_PACKAGE="nsight-systems-${NSIGHT_SYSTEMS_VERSION}_${NSIGHT_SYSTEMS_BUILD}_amd64.deb"
 temp_deb="$(mktemp)" &&
-  wget -O "$temp_deb" https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2024_6/NsightSystems-linux-cli-public-2024.6.1.90-3490548.deb &&
+  wget -O "$temp_deb" "https://developer.download.nvidia.com/devtools/repos/ubuntu2404/amd64/${NSIGHT_SYSTEMS_PACKAGE}" &&
   sudo dpkg -i "$temp_deb" &&
   rm -f "$temp_deb"
+mkdir -p /home/coder/.local/bin
+ln -sf "/opt/nvidia/nsight-systems/${NSIGHT_SYSTEMS_VERSION}/target-linux-x64/nsys" /home/coder/.local/bin/nsys
 
 echo "Installing bash-completion"
 sudo DEBIAN_FRONTEND=noninteractive apt install -y bash-completion

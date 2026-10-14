@@ -7,7 +7,6 @@ x-presto-native-worker-gpu: &gpu_worker_base
     args:
       - GPU=ON
 {% if sccache %}
-    ulimits: {nofile: {soft: 500000, hard: 500000}}
     secrets:
       - github_token
       - aws_credentials
@@ -19,6 +18,9 @@ x-presto-native-worker-gpu: &gpu_worker_base
     - SYS_NICE   # Required for numactl --cpunodebind/--membind under Docker's default seccomp profile (gates set_mempolicy/mbind/get_mempolicy)
   pid: host
   ulimits:
+    nofile:
+      soft: 500000
+      hard: 500000
     memlock: -1
     stack: 67108864
   shm_size: 1g

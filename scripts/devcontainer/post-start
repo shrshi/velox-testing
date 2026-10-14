@@ -29,6 +29,10 @@ else
     exit 1
 fi
 
+# Expose the Nsight Systems agent skill through Pi's skill directory.
+NSIGHT_SYSTEMS_SKILL="$(dirname "$(dirname "$(readlink -f "$(command -v nsys)")")")/skills/nsight-systems"
+ln -sfn "${NSIGHT_SYSTEMS_SKILL}" "${HOME}/.pi/agent/skills/nsight-systems"
+
 # Import the public signing key. The corresponding private key remains on the
 # host and signing requests are handled through the mounted gpg-agent socket.
 GPG_PUBLIC_KEY=/run/host-services/git-signing-public-key.asc

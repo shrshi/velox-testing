@@ -31,12 +31,13 @@ function validate_sibling_repos() {
   if [[ "$VARIANT_TYPE" == "java" ]]; then
     "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto"
   else
-    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${REPO_ROOT}/../velox"
+    "${REPO_ROOT}/scripts/validate_directories_exist.sh" "${REPO_ROOT}/../presto" "${VELOX_SOURCE_DIR}"
   fi
 }
 
 source "${SCRIPT_DIR}/start_presto_helper_parse_args.sh"
 source "${SCRIPT_DIR}/common_functions.sh"
+resolve_velox_source_dir "${REPO_ROOT}"
 
 validate_sccache_auth() {
   if [[ "$ENABLE_SCCACHE" == true ]]; then
@@ -230,7 +231,7 @@ if (( ${#BUILD_TARGET_ARG[@]} )); then
     SCCACHE_BUILD_ARGS+=(--build-arg SCCACHE_NO_DIST_COMPILE=1)
   fi
 
-  # Capture build provenance from sibling repos; exported so docker-compose picks them up.
+  # Capture build provenance from selected repos; exported for docker-compose.
   capture_build_provenance "${REPO_ROOT}"
   if [[ "$VARIANT_TYPE" == "java" ]]; then
     VELOX_SHA="" VELOX_BRANCH="" VELOX_REPO=""

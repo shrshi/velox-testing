@@ -25,6 +25,7 @@
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/velox-testing,type=bind,consistency=consistent",
   "mounts": [
+    "source=${localWorkspaceFolder}/../presto,target=/home/coder/presto,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../cudf,target=/home/coder/cudf,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../rmm,target=/home/coder/rmm,type=bind,consistency=consistent",
     "source=${localWorkspaceFolder}/../velox,target=/home/coder/velox,type=bind,consistency=consistent",
@@ -42,7 +43,7 @@
     "source=${localEnv:GPG_AGENT_EXTRA_SOCK},target=/home/coder/.gnupg/S.gpg-agent,type=bind",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/devcontainer/git-signing-public-key.asc,target=/run/host-services/git-signing-public-key.asc,type=bind,readonly",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/dotfiles,target=/home/coder/dotfiles,type=bind",
-    "source=${localWorkspaceFolder}/../coder-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly"
   ],
   "hostRequirements": {
     "gpu": "optional"

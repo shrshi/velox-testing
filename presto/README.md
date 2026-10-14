@@ -60,7 +60,17 @@ All three repositories must be checked out as sibling directories. **Important:*
    ```
    > **Tip:** Add this export to your `~/.bashrc` to avoid setting it each time.
 
-3. Build dependencies (first time only):
+3. Build dependencies (first time, or when Velox dependency versions change).
+   To use a different Velox checkout or worktree, select it before building:
+   ```bash
+   export VELOX_SOURCE_DIR=/absolute/path/to/velox-worktree
+   ```
+   If unset, the sibling `velox` checkout is used. The dependency build, native
+   worker build, and provenance labels all use this selection. Keep it exported
+   when starting/rebuilding workers. Builds include uncommitted source changes;
+   the provenance SHA identifies the commit, not those changes. Native builds
+   require Docker Compose 2.17+ for named build contexts.
+
    ```bash
    ./build_centos_deps_image.sh
    ```

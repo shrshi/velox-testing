@@ -14,8 +14,8 @@ print_help() {
 Usage: build_centos_deps_image.sh [OPTIONS]
 
 This script does a local build of a Presto dependencies/run-time container to a Docker image.
-It expects sibling Presto and Velox clones, and will override the Presto Velox dependencies
-scripts and CMake config to be those of the sibling Velox.
+It expects a sibling Presto clone and uses VELOX_SOURCE_DIR (default: sibling Velox)
+for the Presto Velox dependency scripts and CMake config.
 
 WARNING: If an image of the given name already exists, it will be removed prior to the build.
 
@@ -76,9 +76,11 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
-# verify sibling Presto and Velox clones
-if [[ ! -d "${REPO_ROOT}/../presto/presto-native-execution" || ! -d "${REPO_ROOT}/../velox" ]]; then
-  echo "Error: Sibling Presto and/or Velox clone not found"
+resolve_velox_source_dir "${REPO_ROOT}"
+
+# Verify source directories before modifying the image or staging dependencies.
+if [[ ! -d "${REPO_ROOT}/../presto/presto-native-execution" || ! -d "${VELOX_SOURCE_DIR}/scripts" || ! -d "${VELOX_SOURCE_DIR}/CMake" ]]; then
+  echo "Error: Sibling Presto or Velox source (${VELOX_SOURCE_DIR}) not found"
   exit 1
 fi
 
@@ -101,11 +103,11 @@ trap cleanup EXIT
 pushd "${REPO_ROOT}/../presto/presto-native-execution" > /dev/null
 
 # override Presto Velox build config
-echo "Overriding Presto Velox build config from sibling Velox clone..."
+echo "Overriding Presto Velox build config from ${VELOX_SOURCE_DIR}..."
 mv velox velox.bak
 mkdir -p velox
-cp -r ../../velox/scripts velox
-cp -r ../../velox/CMake velox
+cp -r "${VELOX_SOURCE_DIR}/scripts" velox
+cp -r "${VELOX_SOURCE_DIR}/CMake" velox
 
 capture_build_provenance "${REPO_ROOT}"
 

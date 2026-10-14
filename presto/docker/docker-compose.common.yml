@@ -40,6 +40,8 @@ services:
     build:
       context: ../../..
       dockerfile: velox-testing/presto/docker/native_build.dockerfile
+      additional_contexts:
+        velox_source: ${VELOX_SOURCE_DIR:-../../../velox}
       args:
         - BASE_IMAGE=${DEPS_IMAGE:-presto/prestissimo-dependency:centos9-${USER}}
         - PRESTO_SHA=${PRESTO_SHA:-}

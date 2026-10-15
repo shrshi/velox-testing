@@ -60,15 +60,22 @@ ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
 
 RUN mkdir /runtime-libraries
 
+# Defaults preserve the ordinary sibling-repository build. Dev builds select
+# sources relative to the build context and isolate objects by dependency image.
+ARG PRESTO_SOURCE_PATH=presto
+ARG VELOX_SOURCE_PATH=velox
+ARG TESTING_SOURCE_PATH=velox-testing
+ARG NATIVE_BUILD_CACHE_ID=${BUILD_BASE_DIR}
+ARG SOURCE_HASH
 RUN \
-    --mount=type=bind,source=presto/presto-native-execution,target=/presto_native_staging/presto \
-    --mount=type=bind,source=velox,target=/presto_native_staging/presto/velox \
-    --mount=type=cache,target=${BUILD_BASE_DIR} \
+    --mount=type=bind,source=${PRESTO_SOURCE_PATH}/presto-native-execution,target=/presto_native_staging/presto \
+    --mount=type=bind,source=${VELOX_SOURCE_PATH},target=/presto_native_staging/presto/velox \
+    --mount=type=cache,id=${NATIVE_BUILD_CACHE_ID},target=${BUILD_BASE_DIR},sharing=locked \
     --mount=type=cache,target=/root/.cache/sccache/preprocessor \
     --mount=type=cache,target=/root/.cache/sccache-dist-client \
     --mount=type=secret,id=github_token,env=SCCACHE_DIST_AUTH_TOKEN \
     --mount=type=secret,id=aws_credentials,target=/root/.aws/credentials \
-    --mount=type=bind,source=velox-testing/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
+    --mount=type=bind,source=${TESTING_SOURCE_PATH}/scripts/sccache/sccache_setup.sh,target=/sccache_setup.sh,ro \
 <<EOF
 set -euxo pipefail;
 
@@ -110,7 +117,7 @@ RUN mkdir /usr/lib64/presto-native-libs && \
     cp /runtime-libraries/* /usr/lib64/presto-native-libs/ && \
     echo "/usr/lib64/presto-native-libs" > /etc/ld.so.conf.d/presto_native.conf
 
-COPY velox-testing/presto/docker/launch_presto_servers.sh velox-testing/presto/docker/presto_profiling_wrapper.sh /opt
+COPY ${TESTING_SOURCE_PATH}/presto/docker/launch_presto_servers.sh ${TESTING_SOURCE_PATH}/presto/docker/presto_profiling_wrapper.sh /opt
 
 ENV LIBCUDF_KERNEL_CACHE_PATH=/var/lib/presto/data/libcudf-cache
 
@@ -120,7 +127,8 @@ ARG PRESTO_REPOSITORY
 ARG VELOX_SHA
 ARG VELOX_BRANCH
 ARG VELOX_REPOSITORY
-LABEL velox-testing.presto.sha=${PRESTO_SHA} \
+LABEL velox-testing.source-hash=${SOURCE_HASH} \
+      velox-testing.presto.sha=${PRESTO_SHA} \
       velox-testing.presto.branch=${PRESTO_BRANCH} \
       velox-testing.presto.repository=${PRESTO_REPOSITORY} \
       velox-testing.velox.sha=${VELOX_SHA} \

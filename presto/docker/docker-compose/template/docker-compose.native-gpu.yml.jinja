@@ -1,3 +1,5 @@
+{% set effective_gpu_numa_binding = gpu_numa_binding | default('auto', true) %}
+{% set ucx_tls = '${PRESTO_GPU_UCX_TLS:-${UCX_TLS:-tcp,cuda_copy,cuda_ipc}}' %}
 x-presto-native-worker-gpu: &gpu_worker_base
   extends:
     file: ../../docker-compose.common.yml
@@ -15,10 +17,13 @@ x-presto-native-worker-gpu: &gpu_worker_base
   runtime: nvidia
   cap_add:
     - IPC_LOCK
+    - SYS_NICE  # Required for strict numactl CPU and memory policy.
     - SYS_ADMIN  # Required for nsys GPU metrics profiling
-    - SYS_NICE   # Required for numactl --cpunodebind/--membind under Docker's default seccomp profile (gates set_mempolicy/mbind/get_mempolicy)
   pid: host
   ulimits:
+    nofile:
+      soft: 500000
+      hard: 500000
     memlock: -1
     stack: 67108864
   shm_size: 1g
@@ -67,18 +72,40 @@ services:
   {% if workers|length > 1 and not single_container %}
   # Separate GPU workers - runs each worker in a separate container, pinned to a specific GPU
   {% for gpu_id in workers %}
+  {% set numa = (gpu_numa_bindings | default({})).get(gpu_id) %}
+  {% if effective_gpu_numa_binding == 'off' %}
+  {% set numa = none %}
+  {% endif %}
   presto-native-worker-gpu-{{ gpu_id }}:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu-{{ gpu_id }}
+    labels:
+      com.nvidia.velox-testing.gpu-id: "{{ gpu_id }}"
+      com.nvidia.velox-testing.gpu-numa-policy: "{{ effective_gpu_numa_binding }}"
+      com.nvidia.velox-testing.gpu-numa-topology-source: "{{ 'disabled' if effective_gpu_numa_binding == 'off' else ('host-render' if numa else 'runtime-discovery') }}"
+{% if numa %}
+      com.nvidia.velox-testing.gpu-numa-cpu-node: "{{ numa.cpu_node }}"
+      com.nvidia.velox-testing.gpu-numa-memory-node: "{{ numa.memory_node }}"
+      com.nvidia.velox-testing.gpu-numa-cpuset: "{{ numa.cpuset }}"
+    # A cgroup CPU set prevents libraries from silently widening affinity.
+    # numactl in launch_presto_servers.sh applies the matching memory policy.
+    cpuset: "{{ numa.cpuset }}"
+{% endif %}
     environment:
       WORKER_ID: {{ gpu_id }}
       NVIDIA_VISIBLE_DEVICES: all
+      PRESTO_GPU_NUMA_BINDING: "{{ effective_gpu_numa_binding }}"
+{% if numa %}
+      PRESTO_GPU_CPUSET: "{{ numa.cpuset }}"
+      PRESTO_GPU_CPU_NUMA_NODE: "{{ numa.cpu_node }}"
+      PRESTO_GPU_MEMORY_NUMA_NODE: "{{ numa.memory_node }}"
+{% endif %}
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: "{{ ucx_tls }}"
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
@@ -105,16 +132,20 @@ services:
   presto-native-worker-gpu:
     <<: *gpu_worker_base
     container_name: presto-native-worker-gpu
+    labels:
+      com.nvidia.velox-testing.gpu-numa-policy: "{{ effective_gpu_numa_binding }}"
+      com.nvidia.velox-testing.gpu-numa-topology-source: "{{ 'disabled' if effective_gpu_numa_binding == 'off' else 'runtime-discovery' }}"
 {%- if workers %}
     command: ["bash", "/opt/presto_profiling_wrapper.sh"{% for gpu_id in workers %}, "{{ gpu_id }}"{% endfor %}]
     environment:
       NVIDIA_VISIBLE_DEVICES: all
+      PRESTO_GPU_NUMA_BINDING: "{{ effective_gpu_numa_binding }}"
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: "{{ ucx_tls }}"
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now
@@ -133,12 +164,13 @@ services:
 {% else %}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
+      PRESTO_GPU_NUMA_BINDING: "{{ effective_gpu_numa_binding }}"
       PROFILE: ${PROFILE:-}
       PROFILE_ARGS: ${PROFILE_ARGS:-}
       SERVER_START_TIMESTAMP: ${SERVER_START_TIMESTAMP:-}
       UCX_LOG_LEVEL: info #debug
       UCX_RNDV_PIPELINE_ERROR_HANDLING: y
-      UCX_TLS: tcp,cuda_copy,cuda_ipc
+      UCX_TLS: "{{ ucx_tls }}"
       UCX_TCP_CM_REUSEADDR: y
       UCX_PROTO_INFO: y
       # don't know, leave it for now

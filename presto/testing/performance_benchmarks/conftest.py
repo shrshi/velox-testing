@@ -29,6 +29,7 @@ from .common_fixtures import (
     ctas_results,  # noqa: F401
     presto_cursor,  # noqa: F401
     run_context_collector,  # noqa: F401
+    session_properties_from_config,
     verify_tables_analyzed,  # noqa: F401
 )
 
@@ -38,6 +39,9 @@ def pytest_addoption(parser):
     parser.addoption("--queries-file")  # path to a custom JSON file containing query definitions
     parser.addoption("--schema-name", required=True)
     parser.addoption("--scale-factor")
+    parser.addoption(
+        "--session-property", action="append", default=[], help="Presto session property as key=value; repeatable."
+    )
     parser.addoption("--hostname", default="localhost")
     parser.addoption("--port", default=8080, type=int)
     parser.addoption("--user", default="test_user")
@@ -78,6 +82,7 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    session_properties_from_config(config)
     # Validate rather than silently falling back at report time: a warm-up iteration
     # reported as a steady-state number is worse than a failed run.
     warmup = config.getoption("--warmup-iterations")

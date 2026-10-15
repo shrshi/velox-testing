@@ -21,6 +21,48 @@ Ensure you have the following directory structure:
 
 All three repositories must be checked out as sibling directories. **Important:** Please use compatible commit hashes/branches across these repositories. There is no formal public matrix yet—refer to release notes, this README, and instructions in the dependent repositories for guidance.
 
+## GPU development workflow
+
+`start_native_gpu_presto_dev.sh` builds selected Presto and Velox checkouts with
+persistent native-object and Maven caches. It preserves the standard GPU
+execution profile rather than applying WXD performance tuning.
+
+```bash
+cd presto/scripts
+PRESTO_GPU_UCX_TLS=tcp,cuda_copy,self ./start_native_gpu_presto_dev.sh \
+  --presto-source /path/to/presto --velox-source /path/to/velox \
+  --build all --restart-target all --clean-first --overwrite-config \
+  --build-type release --num-workers 4 --gpu-ids 0,1,2,3 --wait
+
+./run_benchmark_dev.sh -b tpch -s sf3000 --scale-factor 3000 \
+  -q 18 -i 1 --warmup-iterations 0 \
+  --session-property native_cudf_exchange_enabled=true \
+  --metrics -o tpch_sf3000_q18
+```
+
+- Sources default to sibling `presto` and `velox` directories. Both sources and
+  this checkout must be inside `PRESTO_DEV_BUILD_CONTEXT` (default: this checkout's
+  parent). A compatible dependency image must already exist.
+- `--restart-target none` builds without changing runtime configs or services.
+  Use a full restart when changing worker layouts; worker-only restarts require
+  a coordinator on the same Compose network.
+- `--clean-first` stops the existing cluster; it does not clear native object
+  caches. `--clean-java` requests a clean Maven build.
+- `PRESTO_GPU_UCX_TLS` selects UCX transports. The example excludes CUDA IPC;
+  it does not disable UCX exchange. The session property also requires compatible
+  Presto/Velox sources.
+- `PRESTO_GPU_NUMA_BINDING=auto|required|off` controls GPU-local CPU and memory
+  placement (default: `auto`). `--wait` checks worker health and coordinator
+  registration.
+- `PRESTO_GPU_EXCHANGE_COMPRESSION=false` is the default. Set it to `true` when
+  generating configs to select WXD's `column-adaptive-freq-pfor-min128` codec and
+  pipeline settings. This opt-in requires a Presto/Velox build containing that
+  implementation; the harness does not add codec support. Do not use
+  `--skip-generate-config` when changing this setting.
+- The benchmark wrapper uses the standard `--cache-mode` and warmup semantics.
+  Single-iteration runs require `--warmup-iterations 0`. Session properties are
+  repeatable, and `--metrics` also captures failed-query diagnostics.
+
 ## Current Testing Status
 
 **TPC-H** is the primary benchmark suite currently used for testing Presto GPU functionality. The infrastructure supports comprehensive testing including:

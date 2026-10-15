@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export LOGS_DIR="${LOGS_DIR:-${SCRIPT_DIR}/presto_logs}"
 
 source "${SCRIPT_DIR}/presto_connection_defaults.sh"
+SESSION_PROPERTIES=()
 
 print_help() {
   cat << EOF
@@ -33,6 +34,8 @@ OPTIONS:
     -u, --user              User who queries will be executed as.
     -s, --schema-name       Name of the schema containing the tables that will be queried. This must be an existing
                             schema that contains the benchmark tables.
+    -f, --scale-factor      Explicit scale factor for benchmark metadata.
+    --session-property      Presto session property as key=value; may be repeated.
     -o, --output-dir        Directory path that will contain the output files from the benchmark run.
                             By default, output files are written to "$(pwd)/benchmark_output".
     -i, --iterations        Number of query run iterations. By default, 5 iterations are run.
@@ -59,7 +62,7 @@ OPTIONS:
     --skip-analyze-check    Skip checking that ANALYZE TABLE has been run on all tables (checked by default).
     --run-as-ctas-queries   Run queries as distributed Hive CTAS operations instead of returning results
                             through the coordinator. PRESTO_CTAS_SCRATCH_DIR must be set and mounted when the cluster starts.
-    -m, --metrics           Collect detailed metrics from Presto REST API after each query.
+    -m, --metrics           Collect detailed metrics from Presto REST API after each query, including failures.
                             Metrics are stored in query-specific directories.
     --reference-results-dir Path to a directory containing reference (expected) parquet files.
                             After the benchmark, common/testing/validate_results.py compares
@@ -163,6 +166,19 @@ parse_args() {
           echo "Error: --schema-name requires a value"
           exit 1
         fi
+        ;;
+      -f|--scale-factor)
+        SCALE_FACTOR=${2:?Error: --scale-factor requires a value}
+        shift 2
+        ;;
+      --session-property)
+        SESSION_PROPERTY=${2:?Error: --session-property requires key=value}
+        if [[ ! "$SESSION_PROPERTY" =~ ^[^=[:space:]]+= ]]; then
+          echo "Error: --session-property must be key=value" >&2
+          exit 1
+        fi
+        SESSION_PROPERTIES+=("$SESSION_PROPERTY")
+        shift 2
         ;;
       -o|--output-dir)
         if [[ -n $2 ]]; then
@@ -309,35 +325,41 @@ fi
 
 set_presto_coordinator_defaults
 
-PYTEST_ARGS=("--schema-name ${SCHEMA_NAME}")
+PYTEST_ARGS=(--schema-name "${SCHEMA_NAME}")
 
+if [[ -n ${SCALE_FACTOR} ]]; then
+  PYTEST_ARGS+=(--scale-factor "${SCALE_FACTOR}")
+fi
+for SESSION_PROPERTY in "${SESSION_PROPERTIES[@]}"; do
+  PYTEST_ARGS+=(--session-property "${SESSION_PROPERTY}")
+done
 
 if [[ -n ${QUERIES} ]]; then
-  PYTEST_ARGS+=("--queries ${QUERIES}")
+  PYTEST_ARGS+=(--queries "${QUERIES}")
 fi
 
 if [[ -n ${QUERIES_FILE} ]]; then
-  PYTEST_ARGS+=("--queries-file ${QUERIES_FILE}")
+  PYTEST_ARGS+=(--queries-file "${QUERIES_FILE}")
 fi
 
 if [[ -n ${HOST_NAME} ]]; then
-  PYTEST_ARGS+=("--hostname ${HOST_NAME}")
+  PYTEST_ARGS+=(--hostname "${HOST_NAME}")
 fi
 
 if [[ -n ${PORT} ]]; then
-  PYTEST_ARGS+=("--port ${PORT}")
+  PYTEST_ARGS+=(--port "${PORT}")
 fi
 
 if [[ -n ${USER_NAME} ]]; then
-  PYTEST_ARGS+=("--user ${USER_NAME}")
+  PYTEST_ARGS+=(--user "${USER_NAME}")
 fi
 
 if [[ -n ${OUTPUT_DIR} ]]; then
-  PYTEST_ARGS+=("--output-dir ${OUTPUT_DIR}")
+  PYTEST_ARGS+=(--output-dir "${OUTPUT_DIR}")
 fi
 
 if [[ -n ${ITERATIONS} ]]; then
-  PYTEST_ARGS+=("--iterations ${ITERATIONS}")
+  PYTEST_ARGS+=(--iterations "${ITERATIONS}")
 fi
 
 if [[ -n ${TAG} ]]; then
@@ -346,14 +368,14 @@ if [[ -n ${TAG} ]]; then
     print_help
     exit 1
   fi
-  PYTEST_ARGS+=("--tag ${TAG}")
+  PYTEST_ARGS+=(--tag "${TAG}")
 fi
 
 if [[ "${PROFILE}" == "true" ]]; then
   if [[ -z "${PROFILE_SCRIPT_PATH}" ]]; then
     PROFILE_SCRIPT_PATH="$(readlink -f ${SCRIPT_DIR}/profiler_functions.sh)"
   fi
-  PYTEST_ARGS+=("--profile --profile-script-path ${PROFILE_SCRIPT_PATH}")
+  PYTEST_ARGS+=(--profile --profile-script-path "${PROFILE_SCRIPT_PATH}")
 fi
 
 if [[ "${METRICS}" == "true" ]]; then
@@ -365,15 +387,15 @@ if [[ "${SKIP_DROP_CACHE}" == "true" ]]; then
 fi
 
 if [[ -n ${CACHE_MODE} ]]; then
-  PYTEST_ARGS+=("--cache-mode ${CACHE_MODE}")
+  PYTEST_ARGS+=(--cache-mode "${CACHE_MODE}")
 fi
 
 if [[ -n ${WARMUP_ITERATIONS} ]]; then
-  PYTEST_ARGS+=("--warmup-iterations ${WARMUP_ITERATIONS}")
+  PYTEST_ARGS+=(--warmup-iterations "${WARMUP_ITERATIONS}")
 fi
 
 if [[ -n ${CONNECTOR_ID} ]]; then
-  PYTEST_ARGS+=("--connector-id ${CONNECTOR_ID}")
+  PYTEST_ARGS+=(--connector-id "${CONNECTOR_ID}")
 fi
 
 if [[ "${SKIP_ANALYZE_CHECK}" == "true" ]]; then
@@ -384,14 +406,16 @@ if [[ "${RUN_AS_CTAS_QUERIES}" == "true" ]]; then
   PYTEST_ARGS+=("--run-as-ctas-queries")
 fi
 
-source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
-
-trap delete_python_virtual_env EXIT
-
-init_python_virtual_env
-
 TEST_DIR=$(readlink -f "${SCRIPT_DIR}/../testing")
-pip install -q -r ${TEST_DIR}/requirements.txt
+if [[ -n "${PRESTO_BENCHMARK_DEV_VENV:-}" ]]; then
+  source "${SCRIPT_DIR}/../../scripts/dev_python_env.sh"
+  dev_python_activate "${PRESTO_BENCHMARK_DEV_VENV}" "${TEST_DIR}/requirements.txt"
+else
+  source "${SCRIPT_DIR}/../../scripts/py_env_functions.sh"
+  trap delete_python_virtual_env EXIT
+  init_python_virtual_env
+  pip install -q -r "${TEST_DIR}/requirements.txt"
+fi
 
 source "${SCRIPT_DIR}/common_functions.sh"
 
@@ -405,7 +429,7 @@ echo "Using PRESTO_IMAGE_TAG: $PRESTO_IMAGE_TAG"
 
 BENCHMARK_TEST_DIR=${TEST_DIR}/performance_benchmarks
 PYTEST_EXIT=0
-pytest -q -s ${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py ${PYTEST_ARGS[*]} || PYTEST_EXIT=$?
+pytest -q -s "${BENCHMARK_TEST_DIR}/${BENCHMARK_TYPE}_test.py" "${PYTEST_ARGS[@]}" || PYTEST_EXIT=$?
 
 # Snapshot logs and engine configs into the benchmark output directory so that
 # post_results.py has self-contained, run-specific data even when multiple runs
@@ -454,10 +478,14 @@ else
   fi
   ACTUAL_RESULTS_DIR="${EFFECTIVE_BENCHMARK_DIR}/query_results"
   echo "[Validation] Running validation: ${ACTUAL_RESULTS_DIR} vs ${PRESTO_EXPECTED_RESULTS_DIR:-<not set>}"
-  "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
-    -p "${VALIDATE_SCRIPT}" \
-    -r "${VALIDATE_REQUIREMENTS}" \
-    -- "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
+  if [[ -n "${PRESTO_BENCHMARK_DEV_VENV:-}" ]]; then
+    python "${VALIDATE_SCRIPT}" "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
+  else
+    "${SCRIPT_DIR}/../../scripts/run_py_script.sh" --quiet \
+      -p "${VALIDATE_SCRIPT}" \
+      -r "${VALIDATE_REQUIREMENTS}" \
+      -- "${VALIDATE_ARGS[@]}" || VALIDATION_EXIT=$?
+  fi
 fi
 
 # Preserve the benchmark failure as the primary exit status while still

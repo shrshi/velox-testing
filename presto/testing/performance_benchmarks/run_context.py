@@ -9,6 +9,7 @@ schema and Presto /v1/node respectively.
 """
 
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -269,15 +270,24 @@ def gather_run_context(
     port: int,
     user: str,
     schema_name: str,
+    scale_factor: str | None = None,
 ) -> dict:
     """
     Build run-config dict from context. Engine is determined from the
-    coordinator's cluster-tag (via /v1/cluster). Scale factor is read
-    from the metadata file next to the schema's table data.
+    coordinator's cluster-tag (via /v1/cluster). An explicit scale factor
+    takes precedence over the metadata file next to the schema's table data.
     """
     ctx = {}
     schema_info = _get_schema_info(hostname, port, user, schema_name)
     sf = schema_info["scale_factor"]
+    if scale_factor is not None:
+        try:
+            sf = float(scale_factor)
+            if not math.isfinite(sf) or sf <= 0:
+                raise ValueError("scale factor must be positive and finite")
+        except (TypeError, ValueError):
+            _debug(f"invalid explicit scale factor {scale_factor!r}, falling back to schema metadata")
+            sf = schema_info["scale_factor"]
     if sf is not None:
         ctx["scale_factor"] = int(sf) if isinstance(sf, float) and sf == int(sf) else sf
     if schema_info["data_dir"] is not None:

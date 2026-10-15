@@ -42,6 +42,20 @@ def _record_reset_layers(request, layers):
     setattr(request.session, CACHE_RESET_LAYERS, getattr(request.session, CACHE_RESET_LAYERS, set()) | layers)
 
 
+def session_properties_from_config(config):
+    properties = {}
+    for item in config.getoption("--session-property") or []:
+        key, separator, value = item.partition("=")
+        if not separator or not key.strip():
+            raise pytest.UsageError(f"--session-property must be key=value, got {item!r}")
+        properties[key.strip()] = value.strip()
+    return properties
+
+
+def _cursor_query_id(cursor):
+    return getattr(getattr(cursor, "_query", None), "query_id", None)
+
+
 def write_query_result(cursor, output_dir, query_id):
     rows = cursor.fetchall()
     columns = [description[0] for description in cursor.description]
@@ -114,7 +128,11 @@ def run_context_collector(request):
         port=port,
         user=user,
         schema_name=schema_name,
+        scale_factor=request.config.getoption("--scale-factor"),
     )
+    session_properties = session_properties_from_config(request.config)
+    if session_properties:
+        ctx["session_properties"] = session_properties
     cache_mode = request.config.getoption("--cache-mode")
     if cache_mode in _WORKER_CLEARING_MODES and ctx.get("engine") == "presto-java":
         pytest.exit(
@@ -154,7 +172,14 @@ def presto_cursor(request):
     port = request.config.getoption("--port")
     user = request.config.getoption("--user")
     schema = request.config.getoption("--schema-name")
-    conn = prestodb.dbapi.connect(host=hostname, port=port, user=user, catalog="hive", schema=schema)
+    conn = prestodb.dbapi.connect(
+        host=hostname,
+        port=port,
+        user=user,
+        catalog="hive",
+        schema=schema,
+        session_properties=session_properties_from_config(request.config),
+    )
     return conn.cursor()
 
 
@@ -195,6 +220,10 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
     def benchmark_query_function(query_id):
         profile_output_file_path = None
         scratch_table = None
+        query_was_submitted = False
+        metrics_query_id = None
+        metrics_collection_attempted = set()
+        previous_query_id = None
         try:
             # Once-per-query and once-per-session resets run before the profiler starts,
             # so their overhead stays out of the trace.
@@ -232,7 +261,10 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                 else:
                     query = "--" + str(benchmark_type) + "_" + str(query_id) + "--" + "\n" + benchmark_queries[query_id]
 
+                previous_query_id = _cursor_query_id(presto_cursor)
+                query_was_submitted = True
                 cursor = presto_cursor.execute(query)
+                metrics_query_id = _cursor_query_id(cursor)
 
                 if ctas_results is not None:
                     # CTAS returns only its update count to the client. Consuming it
@@ -247,16 +279,17 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                         write_query_result(cursor, bench_output_dir, query_id)
 
                 # Collect metrics after each query iteration if enabled
-                if metrics:
-                    presto_query_id = cursor._query.query_id
-                    if presto_query_id:
-                        collect_metrics(
-                            query_id=presto_query_id,
-                            query_name=str(query_id),
-                            hostname=hostname,
-                            port=port,
-                            output_dir=bench_output_dir,
-                        )
+                if metrics and metrics_query_id:
+                    metrics_collection_attempted.add(metrics_query_id)
+                    collect_metrics(
+                        query_id=metrics_query_id,
+                        query_name=str(query_id),
+                        hostname=hostname,
+                        port=port,
+                        output_dir=bench_output_dir,
+                    )
+                query_was_submitted = False
+                metrics_query_id = None
 
                 if scratch_table is not None:
                     presto_cursor.execute(
@@ -265,6 +298,24 @@ def benchmark_query(request, presto_cursor, benchmark_queries, benchmark_result_
                     scratch_table = None
             raw_times_dict[query_id] = result
         except Exception as e:
+            if metrics and query_was_submitted:
+                cursor_query_id = _cursor_query_id(presto_cursor)
+                failed_query_id = getattr(e, "query_id", None) or metrics_query_id
+                if not failed_query_id and cursor_query_id != previous_query_id:
+                    failed_query_id = cursor_query_id
+                if failed_query_id and failed_query_id not in metrics_collection_attempted:
+                    try:
+                        collect_metrics(
+                            query_id=failed_query_id,
+                            query_name=str(query_id),
+                            hostname=hostname,
+                            port=port,
+                            output_dir=bench_output_dir,
+                        )
+                    except Exception as metrics_error:
+                        print(
+                            f"[Metrics] Failed to collect diagnostics for failed query {failed_query_id}: {metrics_error}"
+                        )
             error_type = getattr(e, "error_type", type(e).__name__)
             error_name = getattr(e, "error_name", str(e))
             failed_queries_dict[query_id] = f"{error_type}: {error_name}"

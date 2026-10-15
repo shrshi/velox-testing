@@ -72,6 +72,9 @@ RAM_GB=$(lsmem -b | grep "Total online memory" | awk '{print int($4 / (1024*1024
 if [[ -z ${VARIANT_TYPE} || ! ${VARIANT_TYPE} =~ ^(cpu|gpu|java)$ ]]; then
   echo_error "ERROR: VARIANT_TYPE must be set to a valid variant type (cpu, gpu, java)."
 fi
+if [[ "${VARIANT_TYPE}" == "gpu" && ! "${PRESTO_GPU_EXCHANGE_COMPRESSION:-false}" =~ ^(true|false)$ ]]; then
+  echo_error "ERROR: PRESTO_GPU_EXCHANGE_COMPRESSION must be true or false."
+fi
 if [[ -z ${VCPU_PER_WORKER:-} ]]; then
   if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
     VCPU_PER_WORKER=2
@@ -147,6 +150,41 @@ EOF
 else
   # otherwise, reuse existing config
   echo_success "Reusing existing Presto Config files for '${VARIANT_TYPE}'"
+fi
+
+# Reconcile GPU planning and exchange when reusing configs after changing worker
+# count. Do this before duplication so both the base and per-GPU configs agree.
+if [[ "${VARIANT_TYPE}" == "gpu" ]]; then
+  SINGLE_NODE_EXECUTION=true
+  CUDF_EXCHANGE=false
+  if [[ "${NUM_WORKERS}" -gt 1 ]]; then
+    SINGLE_NODE_EXECUTION=false
+    CUDF_EXCHANGE=true
+  fi
+  sed -i "s/^single-node-execution-enabled=.*/single-node-execution-enabled=${SINGLE_NODE_EXECUTION}/" \
+    "${CONFIG_DIR}/etc_coordinator/config_native.properties" \
+    "${CONFIG_DIR}/etc_worker/config_native.properties"
+  sed -i "s/^cudf.exchange=.*/cudf.exchange=${CUDF_EXCHANGE}/" \
+    "${CONFIG_DIR}/etc_worker/config_native.properties"
+
+  # Reconcile compression on reused configs before copying them to each worker.
+  # Enabling this requires a Presto/Velox build with the WXD codec implementation.
+  GPU_WORKER_CONFIG="${CONFIG_DIR}/etc_worker/config_native.properties"
+  sed -i '/^cudf\.exchange_compression\(=.*\|_pipeline=.*\|_pipeline_threads=.*\|_min_bytes=.*\|_safety_margin=.*\)$/d' "${GPU_WORKER_CONFIG}"
+  if [[ "${PRESTO_GPU_EXCHANGE_COMPRESSION:-false}" == "true" ]]; then
+    cat >>"${GPU_WORKER_CONFIG}" <<EOF
+cudf.exchange_compression=column-adaptive-freq-pfor-min128
+cudf.exchange_compression_pipeline=true
+cudf.exchange_compression_pipeline_threads=1
+cudf.exchange_compression_min_bytes=16777216
+cudf.exchange_compression_safety_margin=1.50
+EOF
+  else
+    cat >>"${GPU_WORKER_CONFIG}" <<EOF
+cudf.exchange_compression=none
+cudf.exchange_compression_pipeline=false
+EOF
+  fi
 fi
 
 # We want to propagate any changes from the original worker config to the new worker configs even if

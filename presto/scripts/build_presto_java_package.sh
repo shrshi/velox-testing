@@ -17,10 +17,11 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 echo "Building Presto Java from source with PRESTO_VERSION: $PRESTO_VERSION..."
 
 docker run --rm \
-    -v "${REPO_ROOT}/../presto:/presto" \
+    -v "${PRESTO_DEV_PRESTO_SOURCE:-${REPO_ROOT}/../presto}:/presto" \
     -v "${SCRIPT_DIR}/.mvn_cache:/root/.m2" \
     -v "${SCRIPT_DIR}/maven_settings.xml:/root/maven_settings.xml:ro" \
     -e PRESTO_VERSION=$PRESTO_VERSION \
+    -e PRESTO_DEV_JAVA_CLEAN="${PRESTO_DEV_JAVA_CLEAN:-true}" \
     -w /presto \
     eclipse-temurin:17-jdk-jammy \
     bash -c "
@@ -29,12 +30,14 @@ docker run --rm \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&
     apt-get install -y nodejs &&
     npm install -g yarn@1.22.22 &&
-    ./mvnw -s /root/maven_settings.xml clean install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true -Daether.connector.http.retryHandler.serviceUnavailable=429,500,502,503,504 -Daether.connector.http.retryHandler.count.gcs-maven-central-mirror=0 &&
+    ./mvnw -s /root/maven_settings.xml \$(if [ \"\$PRESTO_DEV_JAVA_CLEAN\" = true ]; then echo clean; fi) install --no-transfer-progress -DskipTests -pl \!presto-docs -pl \!presto-openapi -Dair.check.skip-all=true -Daether.connector.http.retryHandler.serviceUnavailable=429,500,502,503,504 -Daether.connector.http.retryHandler.count.gcs-maven-central-mirror=0 &&
+    PROJECT_VERSION=\$(./mvnw -s /root/maven_settings.xml -q -Dstyle.color=never help:evaluate -Dexpression=project.version -DforceStdout) &&
+    test -n \"\$PROJECT_VERSION\" &&
     echo 'Copying artifacts with version $PRESTO_VERSION...' &&
-    cp presto-server/target/presto-server-*.tar.gz docker/presto-server-$PRESTO_VERSION.tar.gz &&
-    cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-executable.jar &&
-    cp presto-function-server/target/presto-function-server-*executable.jar docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
-    cp presto-cli/target/presto-cli-*-executable.jar docker/presto-cli-$PRESTO_VERSION-executable.jar &&
+    cp \"presto-server/target/presto-server-\$PROJECT_VERSION.tar.gz\" docker/presto-server-$PRESTO_VERSION.tar.gz &&
+    cp \"presto-function-server/target/presto-function-server-\$PROJECT_VERSION-executable.jar\" docker/presto-function-server-executable.jar &&
+    cp \"presto-function-server/target/presto-function-server-\$PROJECT_VERSION-executable.jar\" docker/presto-function-server-$PRESTO_VERSION-executable.jar &&
+    cp \"presto-cli/target/presto-cli-\$PROJECT_VERSION-executable.jar\" docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     chmod +r docker/presto-cli-$PRESTO_VERSION-executable.jar &&
     echo 'Build complete! Artifacts copied with version $PRESTO_VERSION'
     "

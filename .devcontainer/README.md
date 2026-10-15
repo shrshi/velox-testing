@@ -6,7 +6,7 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
-Standalone Velox-cuDF builds use the distributed build cluster via `sccache-dist` and default to 32 jobs. They build Velox-cuDF libraries and tests plus their library dependencies, but not core Velox test, fuzzer, or benchmark executables.
+Standalone Velox-cuDF builds use the distributed build cluster via `sccache-dist` and default to `BUILD_JOBS` from `.devcontainer/config.env`. They build Velox-cuDF libraries and tests plus their library dependencies, but not core Velox test, fuzzer, or benchmark executables.
 
 ```bash
 # 1. Clone sibling repos under the same parent directory
@@ -26,9 +26,9 @@ code velox-testing
 # 3. Reopen in container (pick container based on CUDA version)
 
 # 4. Build
-build-all -j4       # Build RAPIDS libraries, standalone Velox, then Presto
+build-all           # Build RAPIDS libraries, standalone Velox, then Presto
 build-velox         # Build Velox-cuDF tests with bundled RAPIDS dependencies
-build-presto -j4    # Build Presto; syncs ~/velox and builds it inside the Presto tree
+build-presto        # Build Presto; syncs ~/velox and builds it inside the Presto tree
 
 # 5. Test
 test-velox      # Run Velox test suite
@@ -193,7 +193,7 @@ select_sccache_family velox
 require_remote_sccache
 sccache --zero-stats
 cmake --build "$PWD/build/release" \
-  --target velox/experimental/cudf/tests/all --parallel 32
+  --target velox/experimental/cudf/tests/all --parallel "$BUILD_JOBS"
 ```
 
 Running `configure-velox` first does not initialize its parent shell: its

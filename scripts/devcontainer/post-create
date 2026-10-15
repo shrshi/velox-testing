@@ -63,13 +63,13 @@ fi
 
 # Display available commands
 echo "Available commands:"
-echo "  build-all-cpp -j4    - Build RAPIDS C++ libs, velox, and presto"
-echo "  build-all -j4        - Build RAPIDS C++ + Python libs, velox, and presto"
+echo "  build-all-cpp        - Build RAPIDS C++ libs, velox, and presto"
+echo "  build-all            - Build RAPIDS C++ + Python libs, velox, and presto"
 echo "  configure-libcudf-cpp - Configure libcudf without building"
 echo "  build-libcudf-cpp     - Build libcudf, tests, and benchmarks"
-echo "  build-fb-deps -j4    - Build Facebook OSS dependencies"
+echo "  build-fb-deps        - Build Facebook OSS dependencies"
 echo "  build-velox          - Build velox with bundled cuDF support"
-echo "  build-presto -j4     - Build presto-native-execution (auto-builds FB deps)"
+echo "  build-presto         - Build presto-native-execution (auto-builds FB deps)"
 echo "  test-velox           - Run velox tests"
 echo "  test-presto          - Run presto tests"
 echo "  configure-velox      - Run CMake configuration only"

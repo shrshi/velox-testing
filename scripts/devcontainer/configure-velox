@@ -75,6 +75,22 @@ if [[ ! -d "${VELOX_DIR}" ]]; then
     exit 1
 fi
 
+# /opt/velox-build is a bind mount of ~/velox/build. CPM compares paths as
+# strings, so reconfiguring through the other spelling of an existing build
+# tree breaks cuDF's rapids-cmake; reuse the path the cache was created with.
+BUILD_CACHE="${BUILD_BASE_DIR}/${BUILD_TYPE}/CMakeCache.txt"
+if [[ -f "${BUILD_CACHE}" ]]; then
+    CACHED_BUILD_DIR=$(sed -n 's/^CMAKE_CACHEFILE_DIR:INTERNAL=//p' "${BUILD_CACHE}")
+    if [[ "${CACHED_BUILD_DIR}" != "${BUILD_BASE_DIR}/${BUILD_TYPE}" ]]; then
+        if [[ ! "${CACHED_BUILD_DIR}" -ef "${BUILD_BASE_DIR}/${BUILD_TYPE}" ]]; then
+            echo "Error: ${BUILD_CACHE} was created for ${CACHED_BUILD_DIR}" >&2
+            exit 1
+        fi
+        echo "Using cached build path ${CACHED_BUILD_DIR}"
+        BUILD_BASE_DIR=$(dirname "${CACHED_BUILD_DIR}")
+    fi
+fi
+
 [[ "${CUDAARCHS}" == "native" ]] || {
     echo "Error: CUDAARCHS must be native" >&2
     exit 1

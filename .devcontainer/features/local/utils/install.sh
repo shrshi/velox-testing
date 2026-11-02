@@ -6,6 +6,15 @@ set -e
 
 ARCH=$(uname -m)
 
+# Prefer Ubuntu's Python packages over the toolchain PPAs, including the
+# python3/python3-venv metapackages whose dependencies must match the runtime.
+# Keep inherited Python packages in place; do not force system downgrades.
+sudo tee /etc/apt/preferences.d/velox-ubuntu-python > /dev/null <<'EOF'
+Package: python3* libpython3*
+Pin: release o=LP-PPA-ubuntu-toolchain-r*
+Pin-Priority: 1
+EOF
+
 echo "Installing essentials"
 sudo DEBIAN_FRONTEND=noninteractive apt update
 sudo DEBIAN_FRONTEND=noninteractive apt install -y file wget git build-essential gcc g++ gdb cmake make ninja-build curl openssh-client openssh-server kitty-terminfo
@@ -70,14 +79,24 @@ rm -rf "$TMUX_SOURCE" "$TMUX_ARCHIVE"
 # Rest moved to post-create.sh
 
 echo "Installing clangd"
-sudo DEBIAN_FRONTEND=noninteractive apt install -y software-properties-common gnupg lsb-release
+sudo DEBIAN_FRONTEND=noninteractive apt install -y ca-certificates gnupg lsb-release
 LLVM_VERSION=20
-wget https://apt.llvm.org/llvm.sh
-chmod +x llvm.sh
-./llvm.sh ${LLVM_VERSION}
-sudo DEBIAN_FRONTEND=noninteractive apt install -y clangd-${LLVM_VERSION}
+LLVM_CODENAME=$(lsb_release -cs)
+# llvm.sh also installs clang/lldb/lld, pulling in Objective-C packages whose
+# Ubuntu GCC dependencies can conflict with the RAPIDS image's toolchain PPA.
+# Configure the repository directly: this feature only needs clangd.
+if ! grep -qsE "llvm-toolchain-${LLVM_CODENAME}-${LLVM_VERSION}([[:space:]]|$)" \
+  /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; then
+  LLVM_KEY=$(mktemp)
+  curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o "$LLVM_KEY"
+  sudo gpg --dearmor --yes -o /usr/share/keyrings/velox-llvm.gpg "$LLVM_KEY"
+  rm -f "$LLVM_KEY"
+  echo "deb [signed-by=/usr/share/keyrings/velox-llvm.gpg] https://apt.llvm.org/${LLVM_CODENAME}/ llvm-toolchain-${LLVM_CODENAME}-${LLVM_VERSION} main" \
+    | sudo tee /etc/apt/sources.list.d/velox-llvm.list > /dev/null
+fi
+sudo DEBIAN_FRONTEND=noninteractive apt update
+sudo DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends clangd-${LLVM_VERSION}
 update-alternatives --install /usr/bin/clangd clangd /usr/bin/clangd-${LLVM_VERSION} 100
-rm llvm.sh
 
 echo "Installing nsight systems"
 sudo DEBIAN_FRONTEND=noninteractive apt install -y libxi6 libxcb-dri2-0

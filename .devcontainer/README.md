@@ -239,6 +239,7 @@ Velox has many dependencies. Each can be `SYSTEM` (pre-installed) or `BUNDLED` (
 
 The build scripts include several workarounds for toolchain issues:
 
+- **Python package sources**: the utilities feature prefers Ubuntu's Python packages, including `python3` and `python3-venv`, over the toolchain PPAs, which have returned repeated HTTP 503 errors. It does not force downgrades of inherited Python packages and leaves GCC package selection unchanged. Rebuild the image after changing this policy.
 - **GCC 14** instead of GCC 13: avoids false-positive `-Wstringop-overflow` in system `fmt` v9.
 - **`-DCMAKE_CXX_SCAN_FOR_MODULES=OFF`**: CMake 4.x + GCC 14 + Ninja triggers `-fmodules-ts` which causes GCC 14 ICE (segfault).
 - **`-no-pie` linker flag** (Presto only): fbthrift static archives have construction vtables with hidden visibility from virtual inheritance in `apache::thrift` exception classes. The linker cannot resolve `R_X86_64_PC32` relocations against hidden symbols in PIE executables.

@@ -95,7 +95,7 @@ fi
     echo "Error: CUDAARCHS must be native" >&2
     exit 1
 }
-require_remote_sccache
+require_sccache
 sccache --zero-stats
 resolve_cudaarchs
 
@@ -175,7 +175,7 @@ configure_once() {
         BUILD_DIR="${BUILD_TYPE}" BUILD_TYPE="${BUILD_TYPE}" \
         EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS# }" \
         BUILD_BASE_DIR="${BUILD_BASE_DIR}" || configure_rc=$?
-    if ! validate_remote_sccache_stats; then
+    if ! validate_configure_sccache_stats; then
         return 75
     fi
     return "${configure_rc}"
@@ -183,9 +183,9 @@ configure_once() {
 
 configure_rc=0
 configure_once || configure_rc=$?
-if [[ "${configure_rc}" == 75 ]]; then
+if [[ "${configure_rc}" == 75 && "${SCCACHE_COMPILE_MODE}" == remote ]]; then
     echo "Remote configuration compile failed; restarting sccache and retrying once" >&2
-    restart_remote_sccache
+    restart_sccache
     configure_once
 else
     exit "${configure_rc}"

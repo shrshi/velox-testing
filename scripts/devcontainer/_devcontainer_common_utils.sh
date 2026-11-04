@@ -10,8 +10,17 @@ if [[ ! -f "${DEVCONTAINER_CONFIG}" ]]; then
     echo "Error: devcontainer config not found: ${DEVCONTAINER_CONFIG}" >&2
     return 1
 fi
+SCCACHE_COMPILE_MODE=remote
 # shellcheck source=/dev/null
 source "${DEVCONTAINER_CONFIG}"
+case "${SCCACHE_COMPILE_MODE}" in
+    remote|local) export SCCACHE_COMPILE_MODE ;;
+    *)
+        echo "Error: SCCACHE_COMPILE_MODE must be remote or local: ${SCCACHE_COMPILE_MODE}" >&2
+        return 1
+        ;;
+esac
+DEVCONTAINER_UTILS_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 for setting in BUILD_JOBS VELOX_TEST_JOBS PRESTO_TEST_JOBS CUDA_COMPILE_JOBS \
     MAX_LINK_JOBS MAX_HIGH_MEM_JOBS SCCACHE_DIST_MAX_RETRIES \
@@ -85,7 +94,11 @@ select_sccache_family() {
 
     export SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false
     export SCCACHE_DIST_MAX_RETRIES
-    unset SCCACHE_NO_DIST_COMPILE
+    if [[ "${SCCACHE_COMPILE_MODE}" == local ]]; then
+        export SCCACHE_NO_DIST_COMPILE=1
+    else
+        unset SCCACHE_NO_DIST_COMPILE
+    fi
     export CMAKE_C_COMPILER_LAUNCHER=sccache
     export CMAKE_CXX_COMPILER_LAUNCHER=sccache
     export CMAKE_CUDA_COMPILER_LAUNCHER=sccache
@@ -104,17 +117,20 @@ require_idle_sccache() {
     fi
 }
 
-require_remote_sccache() {
+require_sccache() {
+    if [[ "${SCCACHE_COMPILE_MODE}" == local ]]; then
+        python3 "${DEVCONTAINER_UTILS_DIR}/_available_memory.py" || return 1
+    fi
     command -v sccache >/dev/null || {
         echo "Error: sccache is required" >&2
         return 1
     }
     command -v jq >/dev/null || {
-        echo "Error: jq is required to validate sccache-dist" >&2
+        echo "Error: jq is required to validate sccache" >&2
         return 1
     }
     [[ -n "${SCCACHE_SERVER_PORT:-}" && -n "${SCCACHE_DIR:-}" ]] || {
-        echo "Error: call select_sccache_family before require_remote_sccache" >&2
+        echo "Error: call select_sccache_family before require_sccache" >&2
         return 1
     }
 
@@ -148,6 +164,8 @@ require_remote_sccache() {
         fi
         echo "sccache base directories: ${reported_basedirs}"
     fi
+    # NO_DIST_COMPILE is a per-request setting; the same daemon still caches.
+    [[ "${SCCACHE_COMPILE_MODE}" == local ]] && return 0
     sccache --dist-auth >/dev/null || return 1
 
     local status
@@ -159,31 +177,47 @@ require_remote_sccache() {
     fi
 }
 
-validate_remote_sccache_stats() {
+validate_sccache_stats() {
     local stats
-    stats=$(sccache --show-adv-stats --stats-format json)
-    if ! jq -e '
+    stats=$(sccache --show-adv-stats --stats-format json) || return 1
+    if ! jq -e --arg mode "${SCCACHE_COMPILE_MODE}" '
         .stats.requests_not_cacheable == 0 and
         .stats.requests_unsupported_compiler == 0 and
         .stats.non_cacheable_compilations == 0 and
-        .stats.dist_errors == 0
+        .stats.dist_errors == 0 and
+        ($mode != "local" or (.stats.dist_compiles | type == "object" and
+            (map(.) | add // 0) == 0))
     ' <<<"${stats}" >/dev/null; then
-        echo "Error: compilation did not remain fully remote through sccache" >&2
+        echo "Error: compilation violated ${SCCACHE_COMPILE_MODE} sccache policy" >&2
         jq '.stats | {
             requests_not_cacheable,
             requests_unsupported_compiler,
             non_cacheable_compilations,
-            dist_errors
+            dist_errors,
+            dist_compiles
         }' <<<"${stats}" >&2
         return 1
     fi
 }
 
-restart_remote_sccache() {
+# Configure only checks remote compile errors; CMake probes (for example MSVC
+# flag checks) can be legitimately non-cacheable. Builds use
+# validate_sccache_stats.
+validate_configure_sccache_stats() {
+    local stats
+    stats=$(sccache --show-adv-stats --stats-format json) || return 1
+    if ! jq -e '.stats.dist_errors == 0' <<<"${stats}" >/dev/null; then
+        echo "Error: configuration had remote sccache compile errors" >&2
+        jq '.stats | {dist_errors}' <<<"${stats}" >&2
+        return 1
+    fi
+}
+
+restart_sccache() {
     require_idle_sccache || return 1
     sccache --stop-server >/dev/null || return 1
     sccache --start-server >/dev/null || return 1
-    require_remote_sccache
+    require_sccache
 }
 
 # Look up the cmake build directory for a RAPIDS library (rmm, ucxx, kvikio, rapidsmpf, cudf).

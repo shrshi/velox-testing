@@ -66,7 +66,8 @@ RUN chmod 755 /usr/local/bin/build-* /usr/local/bin/configure-* \
     /usr/local/bin/test-* /usr/local/bin/clean-* \
     /usr/local/bin/_devcontainer_common_utils.sh \
     /usr/local/bin/install-rapids-policy \
-    /usr/local/bin/rapids-command-wrapper
+    /usr/local/bin/rapids-command-wrapper \
+    /usr/local/bin/bench-docker
 
 # Environment for velox builds
 # VELOX_DEPENDENCY_SOURCE is read from env by CMake

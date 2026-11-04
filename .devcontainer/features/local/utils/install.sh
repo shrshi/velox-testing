@@ -120,6 +120,9 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y nodejs
 echo "Installing pi"
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
+echo "Installing OpenSpec"
+npm install -g --ignore-scripts @fission-ai/openspec@1.16.0
+
 echo "Installing GitHub CLI (gh)"
 if ! command -v gh &>/dev/null; then
   GH_VERSION="2.88.0"

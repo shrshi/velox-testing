@@ -13,11 +13,17 @@
   },
   "features": {
     "ghcr.io/devcontainers/features/sshd:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.1": {
+      "version": "28.5.2",
+      "moby": false,
+      "dockerDashComposeVersion": "none"
+    },
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils:latest": {},
     "../features/local/utils": {}
   },
   "overrideFeatureInstallOrder": [
     "ghcr.io/devcontainers/features/sshd",
+    "ghcr.io/devcontainers/features/docker-outside-of-docker",
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils",
     "../features/local/utils"
   ],
@@ -78,6 +84,8 @@
     }
   },
   "containerEnv": {
+    "BENCH_DOCKER_OWNER": "${localEnv:USER}",
+    "HOST_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
     "VELOX_DEPENDENCY_SOURCE": "SYSTEM",
     "SSH_AUTH_SOCK": "/ssh-agent",
     "PROMPT_COMMAND": "",

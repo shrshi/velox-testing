@@ -64,7 +64,7 @@ if ! [[ "${NUM_THREADS}" =~ ^[0-9]+$ ]] || (( NUM_THREADS < 1 )); then
     exit 1
 fi
 
-require_remote_sccache
+require_sccache
 sccache --zero-stats
 
 if [[ ! -f "${FB_DEPS_PREFIX}/lib/cmake/fizz/fizz-config.cmake" ]] || \
@@ -136,7 +136,7 @@ build_once() {
     local build_rc=0
     cmake --build "${BUILD_DIR}" --target "${BUILD_TARGETS[@]}" \
         --parallel "${NUM_THREADS}" || build_rc=$?
-    if ! validate_remote_sccache_stats; then
+    if ! validate_sccache_stats; then
         return 75
     fi
     return "${build_rc}"
@@ -144,9 +144,9 @@ build_once() {
 
 build_rc=0
 build_once || build_rc=$?
-if [[ "${build_rc}" == 75 ]]; then
+if [[ "${build_rc}" == 75 && "${SCCACHE_COMPILE_MODE}" == remote ]]; then
     echo "Remote compilation failed; restarting sccache and retrying once" >&2
-    restart_remote_sccache
+    restart_sccache
     build_once
 elif [[ "${build_rc}" != 0 ]]; then
     exit "${build_rc}"

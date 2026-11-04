@@ -6,7 +6,7 @@ A GPU-ready development environment for building [Velox](https://github.com/face
 
 ## Quick Start
 
-Standalone Velox-cuDF builds use the distributed build cluster via `sccache-dist` and default to `BUILD_JOBS` from `.devcontainer/config.env`. They build Velox-cuDF libraries and tests plus their library dependencies, but not core Velox test, fuzzer, or benchmark executables.
+Standalone Velox-cuDF builds default to the distributed build cluster via `sccache-dist` and use `BUILD_JOBS` from `.devcontainer/config.env`. They build Velox-cuDF libraries and tests plus their library dependencies, but not core Velox test, fuzzer, or benchmark executables.
 
 ```bash
 # 1. Clone sibling repos under the same parent directory
@@ -163,9 +163,89 @@ Devcontainer configurations are provided for CUDA 13 and CUDA 12. VS Code will p
 
 The `CUDAARCHS` environment variable defaults to `native`, so only the GPU architecture visible in the container is compiled.
 
-## Distributed compilation
+## Shared-host Docker access
 
-Builds require sccache-dist and disable fallback to local compilation. Each build family uses a dedicated local sccache client daemon while sharing the same remote scheduler and worker fleet:
+Both CUDA configurations use `docker-outside-of-docker:1.10.1` with Docker CLI
+28.5.2 and the feature's packaged Compose/Buildx plugins. This is a client for
+**the host daemon**, not Docker-in-Docker. Socket permissions are handled inside
+the devcontainer by the feature; do not chmod/chown the host socket or change
+host group membership. No host sudo or new host daemon is needed when your
+account already has Docker access. The default mount assumes the host uses
+`/var/run/docker.sock`; rootless or nonstandard endpoints require a mount override.
+
+Recreate/rebuild the devcontainer from the host to add the socket mount. Do not
+stop it from within an active agent session. Check access after reconnecting:
+
+```bash
+docker --version
+docker compose version
+docker buildx version
+docker version --format '{{.Server.Version}}'
+```
+
+Raw socket access is root-equivalent for a rootful daemon. The safeguards below
+are cooperative and can be bypassed; they are not Docker authorization rules.
+Read `AGENTS.md` before using Docker on this shared host.
+
+### Ownership-scoped container operations
+
+`scripts/devcontainer/bench-docker` (also installed in `/usr/local/bin` on rebuild)
+requires `BENCH_DOCKER_OWNER`, supplied from the host's `USER`. Each new run needs
+a unique ID. Use `labels` to obtain the two labels that must be attached when
+creating containers, then register the exact IDs returned by creation:
+
+```bash
+bench-docker --run <unique-run-id> labels
+bench-docker --run <unique-run-id> register <new-container-id>
+bench-docker --run <unique-run-id> ps
+bench-docker --run <unique-run-id> logs <full-container-id> --tail 100
+bench-docker --run <unique-run-id> stop <full-container-id>
+bench-docker --run <unique-run-id> rm <full-container-id>
+```
+
+Records persist under `~/.agents/docker-runs/<owner>/<run>/`. Mutations require a
+registered full ID AND matching current owner/run labels. The helper checks all
+requested IDs before mutation, never uses force removal, and does not remove
+volumes, networks, images, or build caches. Do not register someone else's or
+pre-existing containers. Those other resource types need labels and explicit
+operator-approved cleanup; global prune is never part of this workflow.
+
+### Host paths and Presto integration
+
+`HOST_WORKSPACE_FOLDER` is the host checkout corresponding to
+`/home/coder/velox-testing`. Docker bind mounts use host paths, while Docker build
+contexts are read by the client. Do not blindly substitute one for the other.
+Sibling repositories and datasets need explicit approved host-path mappings;
+this setup does not mount additional host directories. Mount datasets read-only
+and only expose reserved GPUs, accounting for ordinal renumbering inside workers.
+
+This change enables Docker access and container ownership checks, **not an E2E
+Presto launcher**. Existing launch scripts still need isolation for container
+names, ports, generated configuration, image tags and GPU visibility, plus
+host-correct bind mounts. Do not run them unchanged from this devcontainer.
+
+## Compilation mode and cache
+
+Set `SCCACHE_COMPILE_MODE=remote|local` in `.devcontainer/config.env` (default:
+`remote`; other values are rejected). Both modes retain the sccache C/C++/CUDA
+compiler launchers and cache. Remote mode requires scheduler authentication and
+available workers, with `SCCACHE_DIST_FALLBACK_TO_LOCAL_COMPILE=false`.
+
+Local mode skips scheduler checks and exports `SCCACHE_NO_DIST_COMPILE=1` to
+compile requests; this disables distribution, **not caching**. In sccache
+0.18.0-rapids.10 this is a per-request flag, so switching modes does not require
+a daemon restart. Local mode requires at least **200,000,000,000 bytes (200
+decimal GB, not GiB) of available RAM** before configure/build work starts. The
+check uses `/proc/meminfo` `MemAvailable` (Linux kB = 1024 bytes), capped by
+limit-minus-current-usage headroom at the process's cgroup v1/v2 and each exposed
+ancestor. It never counts swap or total RAM, and fails closed on missing or
+malformed memory data. Ancestors hidden by the container's cgroup namespace
+cannot be inspected. This is a launch-time check, not a continuous reservation;
+keep build concurrency bounded and coordinate other workloads. There is no
+memory-floor override.
+
+Each build family uses a dedicated local sccache client daemon; remote mode
+shares the same scheduler and worker fleet:
 
 | Family | Port | State directory |
 |--------|-----:|-----------------|
@@ -174,7 +254,7 @@ Builds require sccache-dist and disable fallback to local compilation. Each buil
 | Presto | 4229 | `/tmp/sccache/presto` |
 | Facebook dependencies | 4230 | `/tmp/sccache/fb-deps` |
 
-This isolation allows a failed build to restart its own client daemon and retry without interrupting another build family. Do not run concurrent builds within one family because they share statistics used to verify that compilation remained remote.
+This isolation allows a failed build to restart its own client daemon and retry without interrupting another build family. Do not run concurrent builds within one family (even in different modes) because they share statistics used to validate cache and compilation policy. Local policy failures stop without restarting/retrying; remote failures retain the guarded retry. Configure wrappers check only remote compile errors (`dist_errors`), because CMake probes can be legitimately non-cacheable; builds enforce the full `validate_sccache_stats` policy.
 
 The Velox client normalizes all registered Git worktree roots using
 `SCCACHE_BASEDIRS`. Because every worktree uses the same relative `build/`
@@ -190,10 +270,11 @@ shell that launches compilation, including inside a detached `bash -c`:
 ```bash
 source /usr/local/bin/_devcontainer_common_utils.sh
 select_sccache_family velox
-require_remote_sccache
+require_sccache || exit 1
 sccache --zero-stats
 cmake --build "$PWD/build/release" \
   --target velox/experimental/cudf/tests/all --parallel "$BUILD_JOBS"
+validate_sccache_stats
 ```
 
 Running `configure-velox` first does not initialize its parent shell: its
@@ -203,7 +284,7 @@ alone does not establish cross-worktree cache reuse; check the selected
 server's base directories and cache-hit statistics. Source content and
 compiler flags must also match for reuse.
 
-The devcontainer overrides `/usr/bin/build-cudf-cpp` and `/usr/bin/configure-cudf-cpp` with policy wrappers. Calls from RAPIDS `build-all`, `build-all-cpp`, and `configure-all` resolve those wrappers through a policy directory prepended to `PATH`. Consequently every libcudf entry point enforces native CUDA architecture, tests and benchmarks, the bundled nvCOMP selected by the libcudf build, remote-only sccache, at most 32 jobs, incremental builds when the cache is compatible, and no CMake install target.
+The devcontainer overrides `/usr/bin/build-cudf-cpp` and `/usr/bin/configure-cudf-cpp` with policy wrappers. Calls from RAPIDS `build-all`, `build-all-cpp`, and `configure-all` resolve those wrappers through a policy directory prepended to `PATH`. Consequently every libcudf entry point enforces native CUDA architecture, tests and benchmarks, the bundled nvCOMP selected by the libcudf build, the configured sccache compilation mode and RAM gate, configured build-job limits, incremental builds when the cache is compatible, and no CMake install target.
 
 ## Build Outputs
 

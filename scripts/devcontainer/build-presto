@@ -69,6 +69,8 @@ if [[ ! -d "${PRESTO_DIR}" ]]; then
     exit 1
 fi
 
+require_sccache
+
 FB_DEPS_ARGS=(-j "${NUM_THREADS}" --prefix "${FB_DEPS_PREFIX}")
 if [[ "${REBUILD_DEPS}" == true ]]; then
     FB_DEPS_ARGS+=(--rebuild)
@@ -89,7 +91,6 @@ if [[ -d "${VELOX_DIR}" ]]; then
         "${VELOX_DIR}/" "${PRESTO_DIR}/velox/"
 fi
 
-require_remote_sccache
 resolve_cudaarchs
 
 echo ""
@@ -155,7 +156,7 @@ build_once() {
     sccache --zero-stats
     local build_rc=0
     ninja -C "${BUILD_BASE_DIR}" -j "${NUM_THREADS}" || build_rc=$?
-    if ! validate_remote_sccache_stats; then
+    if ! validate_sccache_stats; then
         return 75
     fi
     return "${build_rc}"
@@ -163,9 +164,9 @@ build_once() {
 
 build_rc=0
 build_once || build_rc=$?
-if [[ "${build_rc}" == 75 ]]; then
+if [[ "${build_rc}" == 75 && "${SCCACHE_COMPILE_MODE}" == remote ]]; then
     echo "Remote compilation failed; restarting sccache and retrying once" >&2
-    restart_remote_sccache
+    restart_sccache
     build_once
 elif [[ "${build_rc}" != 0 ]]; then
     exit "${build_rc}"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Configure when needed and build libcudf, tests, and benchmarks with remote sccache.
+# Configure when needed and build libcudf, tests, and benchmarks with sccache.
 
 set -euo pipefail
 # shellcheck source=_devcontainer_common_utils.sh
@@ -112,13 +112,13 @@ else
 fi
 
 configure_sccache_basedirs "${SOURCE_DIR}"
-require_remote_sccache
+require_sccache
 
 run_remote_once() {
     sccache --zero-stats
     local command_rc=0
     "$@" || command_rc=$?
-    if ! validate_remote_sccache_stats; then
+    if ! validate_sccache_stats; then
         return 75
     fi
     return "${command_rc}"
@@ -127,9 +127,9 @@ run_remote_once() {
 run_remote_with_retry() {
     local command_rc=0
     run_remote_once "$@" || command_rc=$?
-    if [[ "${command_rc}" == 75 ]]; then
+    if [[ "${command_rc}" == 75 && "${SCCACHE_COMPILE_MODE}" == remote ]]; then
         echo "Remote compilation failed; restarting sccache and retrying once" >&2
-        restart_remote_sccache
+        restart_sccache
         run_remote_once "$@"
     elif [[ "${command_rc}" != 0 ]]; then
         return "${command_rc}"

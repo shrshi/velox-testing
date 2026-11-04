@@ -78,6 +78,8 @@ if [[ -n "${BUILD_TYPE}" ]]; then
     VELOX_PRESTO_ARGS+=("--${BUILD_TYPE}")
 fi
 
+require_sccache
+
 if [[ -x /usr/bin/build-all ]]; then
     PATH="/usr/local/lib/rapids-policy:${PATH}" \
         /usr/bin/build-all "${RAPIDS_ARGS[@]+"${RAPIDS_ARGS[@]}"}"

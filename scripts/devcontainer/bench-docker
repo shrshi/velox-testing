@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Cooperative ownership checks for benchmark containers, not a Docker sandbox."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+OWNER_LABEL = "org.velox-testing.bench.owner"
+RUN_LABEL = "org.velox-testing.bench.run"
+
+
+def docker(*args):
+    return subprocess.check_output(["docker", *args], text=True).strip()
+
+
+def checked_container(reference, owner, run):
+    info = json.loads(docker("container", "inspect", reference))[0]
+    labels = info["Config"].get("Labels") or {}
+    if labels.get(OWNER_LABEL) != owner or labels.get(RUN_LABEL) != run:
+        raise ValueError(f"Refusing container {reference}: owner/run labels do not match")
+    container_id = info["Id"]
+    if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+        raise ValueError("Docker did not return a full container ID")
+    return container_id
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run", required=True, help="Unique run ID; never reuse it")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("labels", help="Print required labels for container creation")
+    register = commands.add_parser("register", help="Record newly created, labeled containers")
+    register.add_argument("containers", nargs="+")
+    commands.add_parser("ps", help="List registered containers that still exist")
+    logs = commands.add_parser("logs", help="Read bounded logs from a registered container")
+    logs.add_argument("container", help="Full container ID printed by register")
+    logs.add_argument("--tail", type=int, default=100)
+    for action in ("stop", "rm"):
+        sub = commands.add_parser(action, help="Operate only on registered, label-checked IDs")
+        sub.add_argument("containers", nargs="+", help="Full container IDs printed by register")
+    args = parser.parse_args(argv)
+    owner = os.environ.get("BENCH_DOCKER_OWNER", "")
+    for name, value in (("owner", owner), ("run", args.run)):
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}", value):
+            parser.error(f"Invalid {name}; set BENCH_DOCKER_OWNER to your host username")
+    if args.command == "labels":
+        print(f"{OWNER_LABEL}={owner}\n{RUN_LABEL}={args.run}")
+        return
+    registry = Path.home() / ".agents" / "docker-runs" / owner / args.run
+    if args.command == "register":
+        ids = [checked_container(ref, owner, args.run) for ref in args.containers]
+        registry.mkdir(parents=True, exist_ok=True)
+        for container_id in ids:
+            (registry / container_id).touch(exist_ok=True)
+            print(container_id)
+        return
+    if args.command == "ps":
+        live = set(docker("container", "ls", "--all", "--quiet", "--no-trunc",
+                          "--filter", f"label={OWNER_LABEL}={owner}",
+                          "--filter", f"label={RUN_LABEL}={args.run}").splitlines())
+        for record in sorted(registry.glob("*")):
+            if record.name in live:
+                print(checked_container(record.name, owner, args.run))
+        return
+    ids = [args.container] if args.command == "logs" else args.containers
+    # Check the whole request before any mutation; never act on a mutable name.
+    for container_id in ids:
+        if not re.fullmatch(r"[0-9a-f]{64}", container_id) or not (registry / container_id).is_file():
+            raise ValueError(f"Unregistered full container ID: {container_id}")
+        checked_container(container_id, owner, args.run)
+    if args.command == "logs":
+        if not 0 <= args.tail <= 10000:
+            parser.error("--tail must be between 0 and 10000")
+        subprocess.run(["docker", "container", "logs", "--tail", str(args.tail), *ids], check=True)
+    else:
+        # No --force, --volumes, prune, Compose down, or name-based cleanup.
+        print(docker("container", args.command, *ids))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, KeyError, IndexError, OSError, subprocess.CalledProcessError) as error:
+        print(f"bench-docker: {error}", file=sys.stderr)
+        sys.exit(1)

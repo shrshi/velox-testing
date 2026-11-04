@@ -77,6 +77,11 @@ fi
 EOF
 fi
 
+# Personal scripts from the dotfiles mount (idempotent).
+if ! grep -q "dotfiles/scripts" "${HOME}/.bashrc"; then
+    echo 'export PATH="${HOME}/dotfiles/scripts:${PATH}"' >> "${HOME}/.bashrc"
+fi
+
 # Configure the mounted encrypted inference token, if it has not been set up.
 ENCRYPTED_TOKEN_FILE="${HOME}/.inference-nvidia.key.gpg"
 TOKEN_ENV_VAR_NAME="SHRSHI_NVINFERENCE_APIKEY"

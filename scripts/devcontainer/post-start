@@ -33,21 +33,15 @@ fi
 NSIGHT_SYSTEMS_SKILL="$(dirname "$(dirname "$(readlink -f "$(command -v nsys)")")")/skills/nsight-systems"
 ln -sfn "${NSIGHT_SYSTEMS_SKILL}" "${HOME}/.pi/agent/skills/nsight-systems"
 
-# Import the public signing key. The corresponding private key remains on the
-# host and signing requests are handled through the mounted gpg-agent socket.
-GPG_PUBLIC_KEY=/run/host-services/git-signing-public-key.asc
-if [[ ! -f "${GPG_PUBLIC_KEY}" ]]; then
-    echo "GPG public key mount not found: ${GPG_PUBLIC_KEY}" >&2
+# Commits are signed with an SSH key. The private key remains on the host and
+# signing requests are handled through the forwarded SSH agent.
+SSH_SIGNING_PUBLIC_KEY=/run/host-services/git-signing-key.pub
+if [[ ! -f "${SSH_SIGNING_PUBLIC_KEY}" ]]; then
+    echo "SSH signing public key mount not found: ${SSH_SIGNING_PUBLIC_KEY}" >&2
     exit 1
 fi
-mkdir -p "${HOME}/.gnupg"
-chmod 700 "${HOME}/.gnupg"
-gpg --batch --import "${GPG_PUBLIC_KEY}"
-GPG_SIGNING_KEY="$(gpg --batch --with-colons --import-options show-only --import "${GPG_PUBLIC_KEY}" | awk -F: '$1 == "fpr" { print $10; exit }')"
-if [[ -z "${GPG_SIGNING_KEY}" ]]; then
-    echo "Could not determine the GPG signing key fingerprint" >&2
-    exit 1
-fi
+GIT_EMAIL="shruti.shivakumar@gmail.com"
+echo "${GIT_EMAIL} $(cut -d' ' -f1,2 "${SSH_SIGNING_PUBLIC_KEY}")" > "${HOME}/.ssh/allowed_signers"
 
 # The agent socket permits Git-over-SSH without exposing private key files.
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
@@ -58,10 +52,10 @@ fi
 
 # Git config (idempotent).
 git config --global user.name "Shruti Shivakumar"
-git config --global user.email "shruti.shivakumar@gmail.com"
-git config --global user.signingkey "${GPG_SIGNING_KEY}"
-git config --global gpg.format openpgp
-git config --global --unset-all gpg.ssh.allowedSignersFile 2>/dev/null || true
+git config --global user.email "${GIT_EMAIL}"
+git config --global user.signingkey "${SSH_SIGNING_PUBLIC_KEY}"
+git config --global gpg.format ssh
+git config --global gpg.ssh.allowedSignersFile "${HOME}/.ssh/allowed_signers"
 git config --global commit.gpgsign true
 git config --global tag.gpgsign true
 git config --global merge.gpgsign true

@@ -65,35 +65,24 @@ if [ -z "${DEVCONTAINER_CONFIG:-}" ] || [ ! -f "$DEVCONTAINER_CONFIG" ]; then
   exit 1
 fi
 
-# Prefer an explicit key, then any Git scope visible to this repository.
-# Deliberately do not infer a key from the keyring: signing must be explicitly
-# configured by the host user.
-GPG_SIGNING_KEY=${GPG_SIGNING_KEY:-$(git config --get user.signingkey || true)}
-gpgconf --launch gpg-agent
-export GPG_AGENT_EXTRA_SOCK=${GPG_AGENT_EXTRA_SOCK:-$(gpgconf --list-dirs agent-extra-socket)}
-GPG_PUBLIC_KEY_FILE="$HOME/.config/devcontainer/git-signing-public-key.asc"
+# Git commits are signed with an SSH key held by the host SSH agent; the
+# private key never enters the container.
+SSH_SIGNING_KEY=${SSH_SIGNING_KEY:-$HOME/.ssh/github-signing}
+SSH_PUBLIC_KEY_FILE="$HOME/.config/devcontainer/git-signing-key.pub"
 
 if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
   echo "SSH_AUTH_SOCK does not point to a running SSH agent" >&2
   exit 1
 fi
-if [ ! -S "$GPG_AGENT_EXTRA_SOCK" ]; then
-  echo "GPG agent socket not found: $GPG_AGENT_EXTRA_SOCK" >&2
-  exit 1
-fi
-if [ -z "$GPG_SIGNING_KEY" ]; then
-  echo "Set GPG_SIGNING_KEY or configure git user.signingkey on the host" >&2
+if [ ! -f "$SSH_SIGNING_KEY.pub" ]; then
+  echo "SSH signing public key not found: $SSH_SIGNING_KEY.pub" >&2
   exit 1
 fi
 
-mkdir -p "$(dirname "$GPG_PUBLIC_KEY_FILE")"
-if ! gpg --armor --export "$GPG_SIGNING_KEY" >"$GPG_PUBLIC_KEY_FILE"; then
-  echo "Could not export GPG signing key: $GPG_SIGNING_KEY" >&2
-  exit 1
-fi
-if [ ! -s "$GPG_PUBLIC_KEY_FILE" ]; then
-  echo "Could not export GPG signing key: $GPG_SIGNING_KEY" >&2
-  exit 1
+mkdir -p "$(dirname "$SSH_PUBLIC_KEY_FILE")"
+cp "$SSH_SIGNING_KEY.pub" "$SSH_PUBLIC_KEY_FILE"
+if ! ssh-add -L | grep -qF "$(cut -d' ' -f2 "$SSH_PUBLIC_KEY_FILE")"; then
+  ssh-add -t 8h "$SSH_SIGNING_KEY"
 fi
 
 echo "Building DevContainer from $DEVCONTAINER_CONFIG..."

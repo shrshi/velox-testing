@@ -82,7 +82,7 @@ fi
 mkdir -p "$(dirname "$SSH_PUBLIC_KEY_FILE")"
 cp "$SSH_SIGNING_KEY.pub" "$SSH_PUBLIC_KEY_FILE"
 if ! ssh-add -L | grep -qF "$(cut -d' ' -f2 "$SSH_PUBLIC_KEY_FILE")"; then
-  ssh-add -t 8h "$SSH_SIGNING_KEY"
+  ssh-add "$SSH_SIGNING_KEY"
 fi
 
 echo "Building DevContainer from $DEVCONTAINER_CONFIG..."

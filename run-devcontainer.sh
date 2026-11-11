@@ -70,8 +70,11 @@ fi
 SSH_SIGNING_KEY=${SSH_SIGNING_KEY:-$HOME/.ssh/github-signing}
 SSH_PUBLIC_KEY_FILE="$HOME/.config/devcontainer/git-signing-key.pub"
 
-if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
-  echo "SSH_AUTH_SOCK does not point to a running SSH agent" >&2
+# ssh-add -l exits with 2 when no agent answers, including a stale socket left
+# behind by a closed SSH session; 1 only means the agent holds no keys.
+if [ -z "${SSH_AUTH_SOCK:-}" ] || { ssh-add -l >/dev/null 2>&1; [ $? -eq 2 ]; }; then
+  echo "No running SSH agent at SSH_AUTH_SOCK='${SSH_AUTH_SOCK:-}'" >&2
+  echo "Reconnect with 'ssh -A' or point SSH_AUTH_SOCK at a live agent socket" >&2
   exit 1
 fi
 if [ ! -f "$SSH_SIGNING_KEY.pub" ]; then

@@ -42,6 +42,10 @@ if [[ ! -f "${SSH_SIGNING_PUBLIC_KEY}" ]]; then
 fi
 GIT_EMAIL="shruti.shivakumar@gmail.com"
 echo "${GIT_EMAIL} $(cut -d' ' -f1,2 "${SSH_SIGNING_PUBLIC_KEY}")" > "${HOME}/.ssh/allowed_signers"
+if ! ssh-add -L 2>/dev/null | grep -qF "$(cut -d' ' -f2 "${SSH_SIGNING_PUBLIC_KEY}")"; then
+    echo "Warning: SSH signing key is not loaded in the forwarded agent; signed commits will fail." >&2
+    echo "On the host, run: ssh-add ~/.ssh/github-signing" >&2
+fi
 
 # The agent socket permits Git-over-SSH without exposing private key files.
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then

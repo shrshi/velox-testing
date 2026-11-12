@@ -131,4 +131,9 @@ EOF
     ln -sf "${HOME}/tmux-config/tmux/tmux.conf" "${HOME}/.tmux.conf"
 fi
 
+EOD_SCRUM_CRON="${DOTFILES_DIR}/skills/eod-scrum/eod-scrum.cron"
+if [[ -f "${EOD_SCRUM_CRON}" ]] && ! sudo -n install -o root -g root -m 0644 "${EOD_SCRUM_CRON}" /etc/cron.d/eod-scrum; then
+    echo "Warning: could not install /etc/cron.d/eod-scrum; run: sudo install -o root -g root -m 0644 ${EOD_SCRUM_CRON} /etc/cron.d/eod-scrum" >&2
+fi
+
 echo "Post-start complete"

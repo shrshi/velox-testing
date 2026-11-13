@@ -48,7 +48,8 @@
     "source=${localWorkspaceFolder}/../.local/share/velox-testing-cuda12.9-venvs,target=/home/coder/.local/share/venvs,type=bind,consistency=consistent",
     "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/devcontainer/git-signing-key.pub,target=/run/host-services/git-signing-key.pub,type=bind,readonly",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.hub-meta.key.gpg,target=/home/coder/.hub-meta.key.gpg,type=bind,readonly"
   ],
   "hostRequirements": {
     "gpu": "optional"

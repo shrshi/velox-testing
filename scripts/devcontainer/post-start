@@ -80,22 +80,26 @@ if ! grep -q "dotfiles/scripts" "${HOME}/.bashrc"; then
     echo 'export PATH="${HOME}/dotfiles/scripts:${PATH}"' >> "${HOME}/.bashrc"
 fi
 
-# Configure the mounted encrypted inference token, if it has not been set up.
-ENCRYPTED_TOKEN_FILE="${HOME}/.inference-nvidia.key.gpg"
-TOKEN_ENV_VAR_NAME="SHRSHI_NVINFERENCE_APIKEY"
-if [[ -f "${ENCRYPTED_TOKEN_FILE}" ]] && ! grep -q "export ${TOKEN_ENV_VAR_NAME}" "${HOME}/.bashrc"; then
-    read -r -s -p "Enter GPG passphrase for ${TOKEN_ENV_VAR_NAME}: " GPG_PASSPHRASE
-    echo
-    TOKEN="$(gpg --quiet --batch --passphrase "${GPG_PASSPHRASE}" --decrypt "${ENCRYPTED_TOKEN_FILE}" 2>/dev/null || true)"
-    unset GPG_PASSPHRASE
-    if [[ -n "${TOKEN}" ]]; then
-        echo "# Auth token from GPG" >> "${HOME}/.bashrc"
-        echo "export ${TOKEN_ENV_VAR_NAME}=\"${TOKEN}\"" >> "${HOME}/.bashrc"
-        echo "Auth token ${TOKEN_ENV_VAR_NAME} added to environment variables."
-    else
-        echo "Warning: unable to decrypt ${TOKEN_ENV_VAR_NAME}." >&2
+# Configure a mounted encrypted token, if it has not been set up.
+configure_encrypted_token() {
+    local encrypted_token_file="$1"
+    local token_env_var_name="$2"
+    if [[ -f "${encrypted_token_file}" ]] && ! grep -q "export ${token_env_var_name}" "${HOME}/.bashrc"; then
+        read -r -s -p "Enter GPG passphrase for ${token_env_var_name}: " GPG_PASSPHRASE
+        echo
+        TOKEN="$(gpg --quiet --batch --passphrase "${GPG_PASSPHRASE}" --decrypt "${encrypted_token_file}" 2>/dev/null || true)"
+        unset GPG_PASSPHRASE
+        if [[ -n "${TOKEN}" ]]; then
+            echo "# Auth token from GPG" >> "${HOME}/.bashrc"
+            echo "export ${token_env_var_name}=\"${TOKEN}\"" >> "${HOME}/.bashrc"
+            echo "Auth token ${token_env_var_name} added to environment variables."
+        else
+            echo "Warning: unable to decrypt ${token_env_var_name}." >&2
+        fi
     fi
-fi
+}
+configure_encrypted_token "${HOME}/.inference-nvidia.key.gpg" SHRSHI_NVINFERENCE_APIKEY
+configure_encrypted_token "${HOME}/.hub-meta.key.gpg" SHRSHI_HUB_META_APIKEY
 
 # Install and configure tmux once.
 if [[ ! -d "${HOME}/tmux-config" ]]; then

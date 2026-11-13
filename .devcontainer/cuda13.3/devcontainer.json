@@ -48,7 +48,8 @@
     "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/devcontainer/git-signing-key.pub,target=/run/host-services/git-signing-key.pub,type=bind,readonly",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/dotfiles,target=/home/coder/dotfiles,type=bind",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.inference-nvidia.key.gpg,target=/home/coder/.inference-nvidia.key.gpg,type=bind,readonly",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/shrshi-devcontainer/.hub-meta.key.gpg,target=/home/coder/.hub-meta.key.gpg,type=bind,readonly"
   ],
   "hostRequirements": {
     "gpu": "optional"
